@@ -59,6 +59,7 @@ export type ActivityKind =
   | 'git'
   | 'web'
   | 'browser'
+  | 'document' // lendo/conferindo documentos (MCP documentos: PDF, planilha, Word)
   | 'plan' // tarefas / planejamento
   | 'delegate' // disparou subagente(s)
   | 'communicate' // mensagem para outro agente / aviso

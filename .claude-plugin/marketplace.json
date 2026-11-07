@@ -21,6 +21,12 @@
       "source": "./mod/habblaud-mensagens",
       "description": "Mandar mensagens pelo Habblaud: o que você digita no escritório entra na sessão como se você tivesse digitado no terminal.",
       "category": "productivity"
+    },
+    {
+      "name": "documentos",
+      "source": "./mod/documentos",
+      "description": "Ler e conferir documentos da pasta do projeto (PDF com texto, xlsx, csv, docx) por um MCP local: valores com a origem, contas refeitas em código, boleto conferido; correções em <nome>-corrigido.<ext>, sem tocar no original.",
+      "category": "productivity"
     }
   ]
 }

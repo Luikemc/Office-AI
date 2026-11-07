@@ -1,9 +1,10 @@
 # Plugins do Claude Code do Habblaud
 
 O repositório é também um marketplace de plugins do Claude Code: `.claude-plugin/marketplace.json` (na raiz)
-lista o marketplace `habblaud` com três plugins, um em cada pasta daqui: o mod `habblaud` (só observa),
-`habblaud-permissoes` (responder permissões pelo escritório) e `habblaud-mensagens` (mandar mensagens pelo
-escritório). O `npm run mod:install` instala os três; `--sem-permissoes` e `--sem-mensagens` deixam o seu de fora.
+lista o marketplace `habblaud` com quatro plugins, um em cada pasta daqui: o mod `habblaud` (só observa),
+`habblaud-permissoes` (responder permissões pelo escritório), `habblaud-mensagens` (mandar mensagens pelo
+escritório) e `documentos` (ler e conferir documentos, servidor MCP). O `npm run mod:install` instala os três
+primeiros; `--sem-permissoes` e `--sem-mensagens` deixam o seu de fora, e `--com-documentos` acrescenta o quarto.
 As versões acompanham o `package.json` (o teste `server/test/mod.test.ts` falha se divergirem).
 
 Testado com o **Claude Code 2.1.293** (o `habblaud-mensagens`, por enquanto só pelo `claude plugin test` do
@@ -122,6 +123,28 @@ Porta: `HABBLAUD_PORT` (padrão 4747). Precisa do Claude Code 2.1.287+ e de um H
 mesma trava do terminal e das permissões (porta presa ao `127.0.0.1` e cabeçalho Host local) e `HABBLAUD_MENSAGENS`
 não desligado (`0`, `false`, `off` ou `no` desligam). Qualquer processo desta máquina que fale com o Habblaud
 consegue mandar uma mensagem às sessões com o plugin: por isso a trava local.
+
+## `documentos` — ler e conferir documentos
+
+Um servidor MCP local (`documentos/.mcp.json` → `node "${CLAUDE_PLUGIN_ROOT}/server.mjs"`, stdio, JSON-RPC uma
+mensagem por linha). Node puro, só `node:*`: zip, XML, fórmulas, PDF e boleto são escritos à mão em `lib/`, porque o
+Claude Code copia só a pasta do plugin para o cache e não roda `npm install`. Para PDF usa o `pdftotext` (poppler)
+se houver, chamado com `execFile` (sem shell); sem ele, um extrator embutido (streams FlateDecode, fontes com
+`ToUnicode`). Sem chave de API: quem lê e explica é a própria sessão do Claude Code; as contas são feitas aqui.
+
+| Ferramenta | Entrada | O que devolve |
+| --- | --- | --- |
+| `ler_documento` | `caminho`, `planilha?`, `pagina?` | PDF: texto por página (`p.3`) e os valores em R$, datas, CPF/CNPJ (DV conferido) e linhas digitáveis com página, linha e trecho. XLSX: células por aba (`Plan1!B7`, valor guardado, fórmula, data). CSV: linhas e colunas. DOCX: parágrafos (`§12`) e tabelas (`T1:L2:C3`). PDF sem texto: diz que não lê (sem OCR). |
+| `conferir_planilha` | `caminho`, `planilha?` | Refaz `SUM` e `+ - * /` sobre células e intervalos (também de outra aba e fórmulas compartilhadas) contra o valor guardado; acha linhas/colunas de “Total/Soma/Subtotal” que não batem com os itens, com ou sem fórmula. Cada divergência: `{celula, valor_encontrado, valor_esperado, diferenca, trecho}`; outras funções vão em `nao_conferidas`. |
+| `conferir_boleto` | `caminho` (PDF) | Linha digitável (47, bancária; 48, arrecadação) ou código de barras (44): DVs módulo 10/11, valor e vencimento pelo fator (os dois ciclos, o de 22/02/2025 recomeça em 1000), comparados com o valor e a data impressos. |
+| `salvar_correcao` | `caminho`, `correcoes: [{local, novo_valor, texto_original?}]` | Grava `<nome>-corrigido.<ext>` (ou `-corrigido-2`…; abre com `wx`, nunca sobrescreve). XLSX: valor, texto, data ou `=fórmula`; refaz as contas que dependem dela, tira o `calcChain` e liga `fullCalcOnLoad`. CSV e DOCX: troca de texto no local. PDF: não edita (sugere um relatório `.md`). |
+
+Os caminhos ficam presos à pasta do projeto (`CLAUDE_PROJECT_DIR` ou o cwd do servidor): `..`, absoluto fora dela e
+link simbólico que aponte para fora são recusados. Limites: arquivo até 50 MB, 60 mil caracteres de texto de PDF,
+2 000 células e 500 linhas de CSV por resposta (com nota do que ficou de fora; as conferências olham tudo).
+
+Testes: `server/test/documentos.test.ts` (gera xlsx, csv, docx e PDF de boleto na hora e fala com o servidor pelo
+stdio). Para experimentar sem instalar: `claude --plugin-dir mod/documentos` na pasta onde estão os documentos.
 
 ## Desenvolver
 

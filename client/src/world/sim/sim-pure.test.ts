@@ -44,6 +44,7 @@ describe('modos de comportamento', () => {
     expect(screenModeFor('web')).toBe('browser');
     expect(screenModeFor('search')).toBe('search');
     expect(screenModeFor('read')).toBe('docs');
+    expect(screenModeFor('document')).toBe('docs');
     expect(screenModeFor('plan')).toBe('tasks');
     expect(screenModeFor('ask')).toBe('chat');
     expect(screenModeFor('error')).toBe('alert');

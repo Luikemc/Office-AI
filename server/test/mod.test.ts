@@ -3,7 +3,7 @@
 // testado pelo Claude Code (`claude plugin test` em mod/habblaud e mod/habblaud-mensagens); aqui fica o que o
 // vitest consegue conferir sem o Claude Code: arquivos, versões, o hook de permissão do plugin rodando de verdade.
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { hookCommand, hookEntry, STATUS_MESSAGE } from '../../scripts/hooks-install';
@@ -12,7 +12,9 @@ import { posixShell } from './fixtures';
 
 const ROOT = resolve(__dirname, '../..');
 const SH = posixShell();
-const PLUGINS = ['habblaud', 'habblaud-permissoes', 'habblaud-mensagens'];
+const PLUGINS = ['habblaud', 'habblaud-permissoes', 'habblaud-mensagens', 'documentos'];
+/** Plugins que são só um servidor MCP (.mcp.json), sem hooks. */
+const MCP_PLUGINS = new Set(['documentos']);
 
 type Rec = Record<string, unknown>;
 
@@ -52,7 +54,7 @@ describe('marketplace e plugins do Claude Code', () => {
     }
   });
 
-  it('marketplace "habblaud" com os três plugins, cada um numa pasta que existe e com o mesmo nome', () => {
+  it('marketplace "habblaud" com os plugins, cada um numa pasta que existe e com o mesmo nome', () => {
     expect(market.name).toBe('habblaud');
     expect(entries.map((e) => e.name)).toEqual(PLUGINS);
     for (const e of entries) {
@@ -62,12 +64,32 @@ describe('marketplace e plugins do Claude Code', () => {
       const dir = join(ROOT, source);
       expect(statSync(dir).isDirectory(), source).toBe(true);
       expect(json(join(source, '.claude-plugin/plugin.json')).name).toBe(e.name);
-      expect(existsSync(join(dir, 'hooks', 'hooks.json')), `${source}/hooks/hooks.json`).toBe(true);
+      const marca = MCP_PLUGINS.has(String(e.name)) ? '.mcp.json' : join('hooks', 'hooks.json');
+      expect(existsSync(join(dir, marca)), `${source}/${marca}`).toBe(true);
+    }
+  });
+
+  it('plugins MCP: o .mcp.json roda um script que existe, e o servidor é Node puro (só node:* e arquivos dele)', () => {
+    for (const name of MCP_PLUGINS) {
+      const dir = join(ROOT, 'mod', name);
+      const servers = Object.values((json(`mod/${name}/.mcp.json`).mcpServers as Rec) ?? {}) as Rec[];
+      expect(servers.length, name).toBeGreaterThan(0);
+      for (const s of servers) {
+        expect(s.command).toBe('node');
+        const path = /^\$\{CLAUDE_PLUGIN_ROOT\}(\/.+)$/.exec(String((s.args as string[])[0]))?.[1];
+        expect(path, name).toBeDefined();
+        expect(existsSync(join(dir, path!)), path).toBe(true);
+      }
+      // O Claude Code copia só a pasta do plugin para o cache, sem npm install: nada de pacote de fora.
+      const files = [join(dir, 'server.mjs'), ...readdirSync(join(dir, 'lib')).filter((f) => f.endsWith('.mjs')).map((f) => join(dir, 'lib', f))];
+      for (const f of files) {
+        for (const spec of importsOf(f)) expect(spec.startsWith('node:') || spec.startsWith('./') || spec.startsWith('../'), `${f}: ${spec}`).toBe(true);
+      }
     }
   });
 
   it('hooks.json: os módulos dos mods e o script do hook de permissão existem', () => {
-    for (const e of entries) {
+    for (const e of entries.filter((x) => !MCP_PLUGINS.has(String(x.name)))) {
       const dir = join(ROOT, String(e.source));
       const hooksJson = join(dir, 'hooks', 'hooks.json');
       const file = JSON.parse(readFileSync(hooksJson, 'utf8')) as Rec;

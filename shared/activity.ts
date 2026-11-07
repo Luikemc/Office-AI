@@ -634,6 +634,27 @@ function humanize(id: string): string {
     .toLowerCase();
 }
 
+/** MCP "documentos" (mod/documentos; como plugin: mcp__plugin_documentos_documentos__<ferramenta>). */
+function describeDocumentos(tool: string, input: Record<string, unknown>): ActivityDescription {
+  const file = str(input.caminho);
+  const name = basename(file);
+  const sheet = /\.(xlsx|xlsm|csv|tsv)$/i.test(file);
+  switch (tool) {
+    case 'ler_documento':
+      if (sheet) return make('document', '📊', tr('Lendo a planilha {0}', [name]), file);
+      if (/\.pdf$/i.test(file)) return make('document', '📕', tr('Lendo o PDF {0}', [name]), file);
+      return make('document', '📄', name ? tr('Lendo o documento {0}', [name]) : tr('Lendo um documento'), file);
+    case 'conferir_planilha':
+      return make('document', '🧮', tr('Conferindo a planilha {0}', [name]), file);
+    case 'conferir_boleto':
+      return make('document', '🧾', tr('Conferindo o boleto {0}', [name]), file);
+    case 'salvar_correcao':
+      return make('document', '📝', tr('Salvando a correção de {0}', [name]), file);
+    default:
+      return make('document', '📄', tr('Documentos: {0}', [humanize(tool)]), file);
+  }
+}
+
 function describeMcp(name: string, input: Record<string, unknown>): ActivityDescription {
   const [, server = '', ...rest] = name.split('__');
   const tool = rest.join('__');
@@ -647,6 +668,7 @@ function describeMcp(name: string, input: Record<string, unknown>): ActivityDesc
     if (/snapshot|read|get_page|find/.test(tool)) return make('browser', '🧭', tr('Lendo a página'));
     return make('browser', '🧭', tr('Navegador: {0}', [humanize(tool)]));
   }
+  if (/(^|_)documentos$/i.test(srv)) return describeDocumentos(tool, input);
   if (/github/i.test(srv)) return make('mcp', '🐙', `GitHub: ${humanize(tool)}`);
   if (/gmail|mail/i.test(srv)) return make('mcp', '✉️', `E-mail: ${humanize(tool)}`);
   if (/drive|docs|notion|confluence/i.test(srv)) return make('mcp', '📄', `${srv}: ${humanize(tool)}`);

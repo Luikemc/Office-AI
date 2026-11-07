@@ -43,6 +43,7 @@ export function screenModeFor(kind: ActivityKind | undefined): ScreenMode {
     case 'search':
       return 'search';
     case 'read':
+    case 'document':
     case 'respond':
     case 'compact':
       return 'docs';

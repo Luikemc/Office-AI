@@ -1,0 +1,11 @@
+{
+  "name": "documentos",
+  "displayName": "Escritório IA: documentos",
+  "version": "1.0.3",
+  "description": "Servidor MCP local que lê e confere documentos da pasta do projeto (PDF com texto, xlsx, csv, docx): lista valores com a origem (página, célula, parágrafo), refaz as contas em código, confere boletos (dígitos, valor, vencimento) e grava correções em <nome>-corrigido.<ext> sem tocar no original.",
+  "author": { "name": "Márcio Junior", "url": "https://github.com/marmottajr" },
+  "homepage": "https://github.com/marmottajr/habblaud#readme",
+  "repository": "https://github.com/marmottajr/habblaud",
+  "license": "MIT",
+  "keywords": ["habblaud", "documentos", "mcp", "planilha", "boleto", "pdf"]
+}
