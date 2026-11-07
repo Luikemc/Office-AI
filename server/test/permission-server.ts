@@ -14,6 +14,7 @@ import { Office } from '../model/office';
 import { createPermissionRoutes } from '../permissions/http';
 import { PermissionRegistry, type RegistryOptions } from '../permissions/registry';
 import type { CodexLive } from '../sources/codex/live';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tempDir } from './fixtures';
 
 export const MAIN = 'acc:1';
@@ -33,7 +34,16 @@ export interface PermissionServer {
 }
 
 export async function servePermissions(
-  opts: { enabled?: boolean; viewers?: number; demo?: boolean; registry?: Partial<RegistryOptions>; codex?: boolean; codexLive?: CodexLive } = {},
+  opts: {
+    enabled?: boolean;
+    viewers?: number;
+    demo?: boolean;
+    registry?: Partial<RegistryOptions>;
+    codex?: boolean;
+    codexLive?: CodexLive;
+    /** Rotas de /api/browser montadas sobre o registro (testes do navegador). */
+    browser?: (registry: PermissionRegistry) => (req: IncomingMessage, res: ServerResponse, url: URL) => void;
+  } = {},
 ): Promise<PermissionServer> {
   const tmp = tempDir();
   const enabled = opts.enabled ?? true;
@@ -73,6 +83,7 @@ export async function servePermissions(
     terminal: enabled,
     permissions: registry ? createPermissionRoutes(registry) : undefined,
     codexLive: opts.codexLive,
+    browser: registry && opts.browser ? opts.browser(registry) : undefined,
   });
   const guard = createRequestGuard({ allowedHosts: new Set(['habblaud.lan']) });
   const server = http.createServer((req, res) => {

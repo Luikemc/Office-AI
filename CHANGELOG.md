@@ -10,6 +10,14 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Navegador do escritório (plugin `navegador`).** O Claude Code ganha ferramentas de navegador — abrir, ler,
+  clicar, digitar, abas e fechar — num Chrome local do Habblaud, com perfil próprio (os logins ficam). Cada sessão só
+  vê as próprias abas. Enviar, submeter, pagar, confirmar, apagar ou publicar, toda ação no WhatsApp e downloads
+  esperam a sua aprovação no escritório: a sala levanta a mão e o cartão mostra o site, o elemento e o texto exato
+  que vai ser digitado. Sem o escritório aberto, a ação é recusada. Instale com `npm run mod:install -- --com-navegador`.
+
 ## [1.0.3] - 2026-10-16
 
 ### Corrigido

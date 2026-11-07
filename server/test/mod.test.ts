@@ -12,7 +12,9 @@ import { posixShell } from './fixtures';
 
 const ROOT = resolve(__dirname, '../..');
 const SH = posixShell();
-const PLUGINS = ['habblaud', 'habblaud-permissoes', 'habblaud-mensagens'];
+const PLUGINS = ['habblaud', 'habblaud-permissoes', 'habblaud-mensagens', 'navegador'];
+/** Plugins só de MCP (.mcp.json, sem hooks). */
+const MCP_PLUGINS = new Set(['navegador']);
 
 type Rec = Record<string, unknown>;
 
@@ -52,7 +54,7 @@ describe('marketplace e plugins do Claude Code', () => {
     }
   });
 
-  it('marketplace "habblaud" com os três plugins, cada um numa pasta que existe e com o mesmo nome', () => {
+  it('marketplace "habblaud" com os plugins, cada um numa pasta que existe e com o mesmo nome', () => {
     expect(market.name).toBe('habblaud');
     expect(entries.map((e) => e.name)).toEqual(PLUGINS);
     for (const e of entries) {
@@ -62,12 +64,13 @@ describe('marketplace e plugins do Claude Code', () => {
       const dir = join(ROOT, source);
       expect(statSync(dir).isDirectory(), source).toBe(true);
       expect(json(join(source, '.claude-plugin/plugin.json')).name).toBe(e.name);
-      expect(existsSync(join(dir, 'hooks', 'hooks.json')), `${source}/hooks/hooks.json`).toBe(true);
+      const manifest = MCP_PLUGINS.has(String(e.name)) ? '.mcp.json' : join('hooks', 'hooks.json');
+      expect(existsSync(join(dir, manifest)), `${source}/${manifest}`).toBe(true);
     }
   });
 
   it('hooks.json: os módulos dos mods e o script do hook de permissão existem', () => {
-    for (const e of entries) {
+    for (const e of entries.filter((x) => !MCP_PLUGINS.has(String(x.name)))) {
       const dir = join(ROOT, String(e.source));
       const hooksJson = join(dir, 'hooks', 'hooks.json');
       const file = JSON.parse(readFileSync(hooksJson, 'utf8')) as Rec;
@@ -143,5 +146,19 @@ describe('plugin habblaud-permissoes', () => {
     expect(r.status).toBe(0);
     expect(r.stdout).toBe('');
     expect(r.stderr).toMatch(/habblaud/i);
+  });
+});
+
+describe('plugin navegador (MCP)', () => {
+  const dir = join(ROOT, 'mod/navegador');
+
+  it('.mcp.json abre o server.mjs do plugin com node; o servidor é Node puro e tem a versão do package.json', async () => {
+    const mcp = json('mod/navegador/.mcp.json');
+    const srv = (mcp.mcpServers as Rec).navegador as Rec;
+    expect(srv.command).toBe('node');
+    expect(srv.args).toEqual(['${CLAUDE_PLUGIN_ROOT}/server.mjs']);
+    for (const spec of importsOf(join(dir, 'server.mjs'))) expect(spec.startsWith('node:'), spec).toBe(true);
+    const mod = (await import(join(dir, 'server.mjs'))) as { VERSION: string };
+    expect(mod.VERSION).toBe(pkg.version);
   });
 });

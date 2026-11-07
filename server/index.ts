@@ -28,6 +28,9 @@ import { openMainAgent, SessionHistory } from './sources/history';
 import { HistorySet, SourceSet } from './sources/source';
 import { createPermissionRoutes } from './permissions/http';
 import { PermissionRegistry } from './permissions/registry';
+import { registryGate } from './browser/approval';
+import { createBrowserRoutes } from './browser/http';
+import { BrowserService } from './browser/service';
 import { codexAccountOf } from './codex/http';
 import { createCodexQueueRunner, findCodexBin } from './messages/codex';
 import { createMessageRoutes } from './messages/http';
@@ -243,6 +246,19 @@ const permissions = config.terminal
     })
   : undefined;
 late.permissions = permissions;
+// Navegador local (plugin navegador): age com os logins do perfil, então exige a trava das permissões (que também é a
+// trava das ações arriscadas dele). Fora do Docker (lá não há Chrome); HABBLAUD_BROWSER=0 desliga. O Chrome só abre
+// no primeiro uso.
+const browser =
+  permissions && !config.inDocker && process.env.HABBLAUD_BROWSER?.trim() !== '0'
+    ? new BrowserService({
+        profileDir: join(config.dataDir, 'navegador-perfil'),
+        downloadsDir: join(config.dataDir, 'navegador-downloads'),
+        headless: process.env.HABBLAUD_BROWSER_HEADLESS?.trim() === '1',
+        executablePath: process.env.HABBLAUD_BROWSER_PATH?.trim() || undefined,
+        gate: registryGate(permissions, config.port),
+      })
+    : undefined;
 // Mensagens pelo escritório (plugin habblaud-mensagens): entram na sessão como se você as tivesse digitado, então
 // seguem a mesma trava (e HABBLAUD_MENSAGENS=0 desliga só elas). Ao Codex vão por `codex queue` (messages/codex.ts):
 // fora do Docker o próprio servidor roda o comando (HABBLAUD_CODEX_BIN ou `codex` do PATH); no Docker, o auxiliar do
@@ -357,6 +373,7 @@ const api = createApiHandler({
   sessions: history,
   timeline: createTimelineHandler({ dir: timelineDir, recording: !!timeline }),
   permissions: permissions ? createPermissionRoutes(permissions) : undefined,
+  browser: browser ? createBrowserRoutes(browser) : undefined,
   messages: messages ? createMessageRoutes(messages) : undefined,
   pty: ptys ? createPtyRoutes(ptys) : undefined,
   spawn,
@@ -552,6 +569,7 @@ function shutdown(signal: string): void {
   terminals?.stop();
   timeline?.stop();
   permissions?.stop();
+  void browser?.stop();
   messages?.stop();
   ptys?.stopAll();
   updates.stop();

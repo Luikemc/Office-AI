@@ -21,6 +21,12 @@
       "source": "./mod/habblaud-mensagens",
       "description": "Mandar mensagens pelo Habblaud: o que você digita no escritório entra na sessão como se você tivesse digitado no terminal.",
       "category": "productivity"
+    },
+    {
+      "name": "navegador",
+      "source": "./mod/navegador",
+      "description": "Navegador do escritório: abrir, ler, clicar e digitar num Chrome local do Habblaud; enviar, pagar, confirmar ou apagar espera a sua aprovação no escritório.",
+      "category": "productivity"
     }
   ]
 }

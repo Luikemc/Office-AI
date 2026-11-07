@@ -91,6 +91,8 @@ festa) ou 10 min. Push só avisa. O mesmo CI visto de novo em 2 min não repete 
 | `GET /api/messages/:id` | (página) situação da mensagem (`OutboxMessage`: `queued` \| `sent` \| `delivered` \| `failed`) |
 | `POST /api/mod/inbox` | (plugin `habblaud-mensagens`) `{session, account?}`: marca a presença da sessão e entrega `{messages: InboxMessage[]}` |
 | `POST /api/mod/inbox/ack` | (plugin) `{session, results: [{id, ok, error?}]}`: confirma cada mensagem entregue (ou a falha) |
+| `POST /api/browser/:ferramenta` | (plugin `navegador`) `abrir`, `ler`, `clicar`, `digitar`, `abas`, `fechar` com `{sessionId, ...}`: o navegador local (ver abaixo) |
+| `GET /api/browser/screenshot` | `?sessionId=&tabId=`: JPEG da aba (a mais nova da sessão sem `tabId`) |
 
 O snapshot (SSE e `GET /api/snapshot`) leva só as últimas 8 atividades de cada agente em `recent`; o histórico
 de até 200 (inclusive o começo de transcripts longos, lido em segundo plano) vem de `GET /api/agents/:id`.
@@ -256,6 +258,54 @@ nenhuma válida) não é desviada (`unsupported-tool`).
 As rotas (`permissions/http.ts`) seguem a trava do terminal: sem `ServerConfig.terminal` → 403 em
 todas; `Host` que não é local → 403. O guard já exige JSON e `Origin` local nos `POST`. Erros: 400 (corpo, sugestão
 ou resposta inválidos), 404 (pedido desconhecido, já entregue ou expirado), 405, 409 (já respondido).
+
+## Navegador do escritório
+
+O servidor é o único dono de **um** contexto persistente do Chrome do sistema (`browser/service.ts`, `playwright-core`
+com `channel: 'chrome'`, perfil em `<dataDir>/navegador-perfil`, então os logins ficam). O Chrome só abre no primeiro
+uso; se você fechar a janela, o próximo uso abre de novo. Liga com a trava das permissões (bind local) e fora do
+Docker; `HABBLAUD_BROWSER=0` desliga, `HABBLAUD_BROWSER_HEADLESS=1` abre sem janela (testes) e
+`HABBLAUD_BROWSER_PATH` troca o executável.
+
+Quem usa é o MCP do plugin `navegador` (`mod/navegador/server.mjs`, stdio, sem dependências), um por sessão do Claude
+Code. Ele acha o `sessionId` em `<conta>/sessions/<pid do claude>.json` (subindo pelos pais em `/proc`) a cada chamada
+e repassa para `POST /api/browser/<ferramenta>` com `{sessionId, ...}`:
+
+| Ferramenta | Corpo | Resposta |
+| --- | --- | --- |
+| `abrir` | `{url}` (só http/https; sem esquema vira https) | `{ok, aba, texto}`, aba nova da sessão |
+| `ler` | `{tabId}` | `{ok, aba, texto}` |
+| `clicar` | `{tabId, ref, elemento}` | `{ok, aba, texto}` |
+| `digitar` | `{tabId, ref, texto, enviar?, elemento?}` | `{ok, aba, texto}` |
+| `abas` | `{}` | `{ok, abas: [{id, title, url, revision}]}` |
+| `fechar` | `{tabId}` | `{ok, fechada}` |
+
+`texto` é a leitura da página: aba e revisão, título, URL, avisos (aba nova aberta pela página, `alert`/`confirm`
+fechados sem confirmar, downloads) e a árvore de acessibilidade (`page.ariaSnapshotJSON({mode: 'ai'})`, que atravessa
+shadow DOM e iframes) em texto compacto, com ref só nos elementos de ação (`[ref=r3-e7]`: revisão 3 da aba). Limites:
+20 000 caracteres e 200 refs; cortando, primeiro o que está na tela. Toda ação devolve uma leitura nova; ref de outra
+revisão ou que não existe mais → 409 "faça `ler` de novo". Cada aba tem uma fila (uma ação por vez); cada sessão só
+vê as próprias abas (a de outra sessão responde como desconhecida); popups viram abas da mesma sessão. Clicar usa a
+espera do Playwright (visível, estável, não coberto) e depois espera a página assentar (load + DOM quieto, até
+1,5 s); `digitar` usa `fill` e, com `enviar`, aperta Enter na mesma operação. Não há ferramenta de rodar código na
+página nem de enviar arquivo.
+
+**Trava** (`browser/gate.ts`, no servidor): pedem a sua aprovação `digitar` com `enviar: true`; `clicar` num elemento
+cujo nome/texto fala em enviar, pagar, comprar, confirmar, excluir, publicar... (pt/en/es), num botão que submete um
+formulário (`type=submit`, `input` submit/image) ou num botão/link de formulário cujo nome/ação fala nisso; toda ação
+que altera a página no WhatsApp (`*.whatsapp.com`); e todo download (o arquivo vai para
+`<dataDir>/navegador-downloads` só com o ok; recusado, é cancelado). O pedido entra no registro de permissões por
+dentro (`PermissionRegistry.requestInternal`, `browser/approval.ts`): o cartão (`mcp__navegador__clicar(site)`) mostra
+o site, o elemento como a página o descreve, a descrição do agente, o motivo e, ao digitar, o texto exato; a sala
+fica `waiting`. A requisição HTTP fica aberta até a resposta (até 5 min; o MCP usa `node:http` sem tempo limite);
+conexão que cai tira o pedido. Sem página aberta, sessão desconhecida, recusa, "responder no terminal", tempo
+esgotado ou erro → a ação não roda e a resposta é `403 {code: 'denied'}`. Pedidos internos não são soltos como
+órfãos (não há long-poll) nem pela busca no transcript.
+
+Borda: só pela porta local (a remota recebe 403 mesmo com login), `Host` local, conexão pelo loopback e **sem
+`Origin`** nos `POST` (uma página aberta no próprio navegador manda `Origin`; o MCP, não). Erros:
+`{ok: false, code, error}` com 400 `invalid`, 403 `denied`, 404 `not-found`, 409 `stale`, 429 `too-many` (8 abas por
+sessão), 503 `disabled`, 500 `failed`.
 
 ## Mensagens pelo escritório
 
@@ -484,6 +534,9 @@ em `shared/world/city.ts` (fonte da verdade; o servidor do mundo guarda a cópia
 | `HABBLAUD_CODEX` | ligado | `0` desliga a fonte do Codex |
 | `HABBLAUD_CODEX_DIRS` | — | pastas do Codex separadas por vírgula; substitui a detecção (`CODEX_HOME` e `~/.codex*`) |
 | `HABBLAUD_CODEX_BIN` | `codex` do PATH | binário do Codex para o `codex queue` (modo Node e `npm run codex:bridge`) |
+| `HABBLAUD_BROWSER` | ligado (com o terminal, fora do Docker) | `0` desliga o navegador do escritório (`/api/browser/*`) |
+| `HABBLAUD_BROWSER_HEADLESS` | desligado | `1` abre o Chrome do navegador sem janela |
+| `HABBLAUD_BROWSER_PATH` | Chrome instalado (`channel: 'chrome'`) | executável do Chrome/Chromium do navegador |
 | `HABBLAUD_MENSAGENS` | ligado (com o terminal) | `0`, `false`, `off` ou `no` desligam só as mensagens pelo escritório |
 | `HABBLAUD_CLAUDE_DIRS` | — | config dirs separados por vírgula; substitui a detecção (`~/.claude*` com `projects/` ou `sessions/` + `CLAUDE_CONFIG_DIR`) |
 | `HABBLAUD_DATA_DIR` | `~/.habblaud` (Docker: `/data`) | estado do Habblaud (nomes e personagens dos projetos persistidos em `names.json`, linha do tempo em `timeline/`, estatísticas do Meu dia em `stats/`, última verificação de versão em `updates.json`) |
@@ -546,6 +599,7 @@ O repositório é também um marketplace de plugins do Claude Code (`.claude-plu
 - `http/` — proteções de borda (`guard.ts`), rotas (`app.ts`), SSE (`sse.ts`), terminal (`terminal.ts`) e o histórico dele (`sessions.ts`), timelapse (`timeline.ts`), Meu dia (`stats.ts`), estáticos (`static.ts`).
 - `history/` — gravador da linha do tempo do timelapse (`timeline.ts`) e as estatísticas do Meu dia: amostragem, persistência e retenção (`daystats.ts`; o acumulador puro fica em `shared/daystats.ts`).
 - `permissions/` — responder pelo escritório (permissões e perguntas): registro dos pedidos (`registry.ts`), rotas (`http.ts`) e a busca da chamada no transcript (`transcript.ts`).
+- `browser/` — navegador do escritório: Chrome, abas e ferramentas (`service.ts`), leitura da página (`snapshot.ts`), trava (`gate.ts`), pedidos no registro de permissões (`approval.ts`) e rotas (`http.ts`).
 - `messages/` — mensagens pelo escritório: fila, presença das sessões e prazos (`registry.ts`) e rotas (`http.ts`).
 - `updates/` — verificação de versão nova nas releases do GitHub (`checker.ts`).
 - `world/` — Habblaud World: sessão em `world.json` (`settings.ts`), cliente do servidor do mundo (`client.ts`), ALTCHA (`altcha.ts`), a conta (`service.ts`), as rotas `/api/world/*` (`http.ts`) e o prédio no mundo (`uplink.ts`, com `ids.ts`, `tokens.ts`, `theme.ts` e `signals.ts`).

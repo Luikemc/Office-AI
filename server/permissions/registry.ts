@@ -15,6 +15,9 @@
 // conta no corpo). Diferenças: o agente casa pelo thread (agent_id ?? session_id) entre os agentes do Codex; sem
 // sugestões nem perguntas; recusar só com motivo (sem interromper); sem a busca da resposta no transcript (no Codex o
 // terminal só pede a aprovação depois que o hook termina, então ela nunca é respondida lá enquanto ele espera).
+//
+// O próprio servidor também pede (requestInternal: a trava do navegador, server/browser/approval.ts): mesmo cartão e
+// mesma sala em 'waiting', mas quem espera é uma Promise; sem órfão nem busca no transcript.
 import { randomBytes } from 'node:crypto';
 import { describeTool, maskSecrets, truncate } from '../../shared/activity';
 import { ANSWER_OTHER_MAX, answerSummary, ASK_TOOL, checkAnswers } from '../../shared/answers';
@@ -150,7 +153,29 @@ interface Pending {
   idleSince: number;
   outcome?: Exclude<WaitResult, { status: 'pending' }>;
   resolvedAt?: number;
+  /**
+   * Pedido de dentro do próprio servidor (requestInternal, ex.: o navegador): quem espera é esta função, não um hook.
+   * Sem órfão (não há long-poll) e sem busca no transcript (a chamada só termina depois da decisão).
+   */
+  internal?: (outcome: Exclude<WaitResult, { status: 'pending' }>) => void;
 }
+
+/** Pedido de dentro do servidor (o navegador, server/browser): o texto do cartão já vem pronto. */
+export interface InternalRequest {
+  sessionId: string;
+  /** Nome da ferramenta no cartão (ex.: "mcp__navegador__clicar"). */
+  tool: string;
+  /** Título no estilo do Claude Code (ex.: "mcp__navegador__clicar(localhost)"). */
+  title: string;
+  /** Resumo em PT (já traduzido) e o ícone. */
+  text: string;
+  icon: string;
+  /** O que vai acontecer, em texto (o texto digitado vai inteiro). */
+  input?: string;
+  timeoutMs?: number;
+}
+
+export type InternalResult = { id: string; result: Promise<Exclude<WaitResult, { status: 'pending' }>>; cancel: () => void } | { skip: SkipReason };
 
 type Rec = Record<string, unknown>;
 
@@ -447,6 +472,40 @@ export class PermissionRegistry {
     return { id, expiresAt: info.expiresAt + EXPIRY_GRACE_MS };
   }
 
+  /**
+   * Pedido de dentro do servidor (o navegador): mesma fila, mesmo cartão e mesma mão levantada que os do hook, mas
+   * quem espera é a Promise devolvida. `{skip}` = ninguém para responder (quem chama trata como recusa). `cancel`
+   * larga o pedido (vira 'orphan').
+   */
+  requestInternal(req: InternalRequest): InternalResult {
+    if (this.opts.viewers() <= 0) return { skip: 'no-viewers' };
+    const target = this.resolveAgent(req.sessionId);
+    if (!target) return { skip: 'unknown-session' };
+    if (this.size >= this.maxPending) return { skip: 'too-many' };
+    const now = this.now();
+    const id = `p-${now.toString(36)}-${++this.seq}-${randomBytes(9).toString('base64url')}`;
+    const timeoutMs = Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, req.timeoutMs ?? DEFAULT_TIMEOUT_MS));
+    const info: PermissionRequestInfo = { id, tool: req.tool, title: truncate(req.title, 200), text: req.text, icon: req.icon, createdAt: now, expiresAt: now + timeoutMs };
+    if (req.input) {
+      info.input = req.input;
+      info.inputKind = 'text';
+    }
+    let done!: (o: Exclude<WaitResult, { status: 'pending' }>) => void;
+    const result = new Promise<Exclude<WaitResult, { status: 'pending' }>>((r) => (done = r));
+    const p: Pending = { info, agentId: target.id, sessionId: req.sessionId, signature: '', lastScanAt: 0, waiters: new Set(), idleSince: now, internal: done };
+    this.pending.set(id, p);
+    this.opts.office.addActivity(target.id, { id: `${target.id}#perm:${id}`, at: now, kind: 'wait', icon: '🔐', text: truncate(tr('Pede permissão: {0}', [req.text]), 46), detail: info.title, tool: 'PermissionRequest' }, false);
+    this.opts.office.noticePermission(target.id, req.text);
+    this.opts.office.markDirty();
+    return {
+      id,
+      result,
+      cancel: () => {
+        if (this.pending.get(id) === p && !p.outcome) this.release(p, 'orphan');
+      },
+    };
+  }
+
   /** Detalhe completo de um pedido em aberto (com os argumentos), ou undefined. */
   detail(id: string): PermissionRequestInfo | undefined {
     const p = this.pending.get(id);
@@ -555,6 +614,9 @@ export class PermissionRegistry {
         continue;
       }
       if (now >= p.info.expiresAt + EXPIRY_GRACE_MS) this.release(p, 'expired');
+      else if (p.internal && !present(this.opts.office.get(p.agentId))) this.release(p, 'gone');
+      // Pedido interno: ninguém faz long-poll e a chamada só aparece no transcript depois da decisão.
+      else if (p.internal) continue;
       else if (!p.waiters.size && now - p.idleSince >= this.orphanMs) this.release(p, 'orphan');
       else if (!present(this.opts.office.get(p.agentId))) this.release(p, 'gone');
       else if (unwatched && p.info.expiresAt - p.info.createdAt > DEFAULT_TIMEOUT_MS) this.release(p, 'unwatched');
@@ -656,7 +718,8 @@ export class PermissionRegistry {
   private resolve(p: Pending, outcome: Exclude<WaitResult, { status: 'pending' }>): void {
     p.outcome = outcome;
     p.resolvedAt = this.now();
-    const delivered = p.waiters.size > 0;
+    const delivered = p.waiters.size > 0 || !!p.internal;
+    p.internal?.(outcome);
     for (const w of [...p.waiters]) this.dropWaiter(p, w, outcome);
     // Entregue a quem esperava: some já; senão fica guardado até o hook voltar (ou RESOLVED_KEEP_MS).
     if (delivered) this.pending.delete(p.info.id);

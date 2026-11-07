@@ -1,0 +1,11 @@
+{
+  "name": "navegador",
+  "displayName": "Habblaud: navegador do escritório",
+  "version": "1.0.3",
+  "description": "Ferramentas de navegador (abrir, ler, clicar, digitar) num Chrome local do Habblaud, com os seus logins; enviar, pagar, confirmar ou apagar espera a sua aprovação no escritório.",
+  "author": { "name": "Márcio Junior", "url": "https://github.com/marmottajr" },
+  "homepage": "https://github.com/marmottajr/habblaud#readme",
+  "repository": "https://github.com/marmottajr/habblaud",
+  "license": "MIT",
+  "keywords": ["habblaud", "navegador", "browser", "mcp"]
+}

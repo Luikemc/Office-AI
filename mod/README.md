@@ -4,6 +4,7 @@ O repositório é também um marketplace de plugins do Claude Code: `.claude-plu
 lista o marketplace `habblaud` com três plugins, um em cada pasta daqui: o mod `habblaud` (só observa),
 `habblaud-permissoes` (responder permissões pelo escritório) e `habblaud-mensagens` (mandar mensagens pelo
 escritório). O `npm run mod:install` instala os três; `--sem-permissoes` e `--sem-mensagens` deixam o seu de fora.
+O quarto, `navegador` (navegador do escritório, um MCP), só entra com `--com-navegador`.
 As versões acompanham o `package.json` (o teste `server/test/mod.test.ts` falha se divergirem).
 
 Testado com o **Claude Code 2.1.293** (o `habblaud-mensagens`, por enquanto só pelo `claude plugin test` do
@@ -138,3 +139,14 @@ Ao carregar um mod, o Claude Code grava os tipos da versão instalada em `<pasta
 `<pasta>/tsconfig.json` que os estende; os dois são gerados e ficam fora do git (`mod/.gitignore`). Os testes dos
 mods importam `claude-code/testing` e só rodam pelo `claude plugin test`: o `npm test` (vitest) e o
 `npm run typecheck` não olham esta pasta.
+
+## `navegador` — navegador do escritório
+
+`navegador/.mcp.json` abre `node "${CLAUDE_PLUGIN_ROOT}/server.mjs"`: um servidor MCP stdio sem dependências
+(JSON-RPC à mão) com as ferramentas `abrir`, `ler`, `clicar`, `digitar`, `abas` e `fechar` (no Claude Code,
+`mcp__plugin_navegador_navegador__*`). Ele não abre navegador nenhum: acha a sessão em
+`<conta>/sessions/<pid do claude>.json` e repassa cada chamada para
+`http://127.0.0.1:<HABBLAUD_PORT ou 4747>/api/browser/<ferramenta>`. O Chrome, as abas e a trava (enviar, pagar,
+confirmar, apagar, WhatsApp e downloads esperam a sua aprovação no escritório) ficam no servidor do Habblaud: veja
+"Navegador do escritório" em `server/README.md`. Habblaud fora do ar: a ferramenta responde com erro e pede para
+abrir o escritório.

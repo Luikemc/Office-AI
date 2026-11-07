@@ -638,7 +638,27 @@ function describeMcp(name: string, input: Record<string, unknown>): ActivityDesc
   const [, server = '', ...rest] = name.split('__');
   const tool = rest.join('__');
   const srv = server.replace(/^claude_ai_/, '');
-  if (/playwright|chrome|browser|puppeteer/i.test(srv)) {
+  // Navegador do escritório (plugin navegador: mcp__navegador__* ou mcp__plugin_navegador_navegador__*).
+  if (/(^|_)navegador$/i.test(srv)) {
+    const el = str(input.elemento);
+    switch (tool) {
+      case 'abrir': {
+        const url = str(input.url);
+        return make('browser', '🧭', url ? tr('Abrindo {0}', [domainOf(url)]) : tr('Navegando no navegador'), url);
+      }
+      case 'ler':
+        return make('browser', '🧭', tr('Lendo a página'));
+      case 'clicar':
+        return make('browser', '🖱️', el ? tr('Clicando em {0}', [truncate(el, 30)]) : tr('Clicando na página'), el);
+      case 'digitar':
+        return make('browser', '⌨️', input.enviar === true ? tr('Digitando e enviando') : tr('Digitando na página'), el);
+      case 'abas':
+        return make('browser', '🗂️', tr('Conferindo as abas do navegador'));
+      case 'fechar':
+        return make('browser', '🗂️', tr('Fechando uma aba'));
+    }
+  }
+  if (/playwright|chrome|browser|puppeteer|navegador/i.test(srv)) {
     const url = str(input.url);
     if (/navigate/.test(tool)) return make('browser', '🧭', url ? tr('Abrindo {0}', [domainOf(url)]) : tr('Navegando no navegador'), url);
     if (/screenshot/.test(tool)) return make('browser', '📸', tr('Tirando print da página'));

@@ -94,6 +94,11 @@ export interface ApiDeps {
    * local com Host local: pela porta do celular, nem com login (403 `local_only`).
    */
   world?: (req: IncomingMessage, res: ServerResponse, url: URL) => void;
+  /**
+   * Navegador local (/api/browser/*, server/browser/http.ts), usado pelo MCP do plugin navegador. Ausente = desligado
+   * (HABBLAUD_BROWSER=0, Docker ou sem a trava do terminal). Só pela porta local, conexão pelo loopback e sem Origin.
+   */
+  browser?: (req: IncomingMessage, res: ServerResponse, url: URL) => void;
 }
 
 /** GET /api/agents/:id/terminal (ids nunca contêm '/'). */
@@ -125,7 +130,8 @@ function isLocalOnlyPath(path: string): boolean {
     path === '/api/mod/inbox' ||
     path === '/api/mod/inbox/ack' ||
     path.startsWith('/api/codex/') ||
-    path.startsWith('/api/host/')
+    path.startsWith('/api/host/') ||
+    path.startsWith('/api/browser/')
   );
 }
 
@@ -438,6 +444,18 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         terminals,
         trusted: isRemote(req) ? trusted(req, 'terminal') : undefined,
       });
+      return true;
+    }
+    if (path.startsWith('/api/browser/')) {
+      // O navegador age em seu nome (logins do perfil): só o MCP local. Host local, conexão pelo loopback e nenhum
+      // Origin nos POST (uma página aberta no próprio navegador, mesmo em localhost, manda Origin; o MCP não).
+      if (!deps.browser) {
+        req.resume();
+        sendJson(res, 503, { ok: false, code: 'disabled', error: tr('navegador desligado (HABBLAUD_BROWSER=0, Docker ou Habblaud acessível pela rede)') });
+      } else if (!trusted(req) || !isLoopbackAddress(req.socket.remoteAddress) || (!isRead && req.headers.origin !== undefined)) {
+        req.resume();
+        sendJson(res, 403, { ok: false, code: 'forbidden', error: tr('o navegador só é usado pelo MCP do próprio computador') });
+      } else deps.browser(req, res, url);
       return true;
     }
     if (path === '/api/permissions' || path.startsWith('/api/permissions/')) {

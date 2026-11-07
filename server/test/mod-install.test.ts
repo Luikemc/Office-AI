@@ -7,6 +7,7 @@ import { modHint } from '../../scripts/docker-up';
 import { hookCommand, hookEntry } from '../../scripts/hooks-install';
 import {
   accountEnv,
+  BROWSER_PLUGIN,
   cliMessage,
   cliSteps,
   describeStatus,
@@ -132,6 +133,17 @@ describe('mod-install.ts (funções puras)', () => {
     expect(accountEnv(env, '/h/.claude-conta2', '/h')).toEqual({ PATH: '/bin', CLAUDE_CONFIG_DIR: '/h/.claude-conta2' });
     expect(accountEnv({ PATH: '/bin' }, '/h/.claude-x', '/h')).toEqual({ PATH: '/bin', CLAUDE_CONFIG_DIR: '/h/.claude-x' });
     expect(env.CLAUDE_CONFIG_DIR).toBe('/h/.claude-conta2');
+  });
+
+  it('navegador: só com --com-navegador; um já instalado continua e acompanha a versão; status e uninstall só o mostram se instalado', () => {
+    const base = { root: ROOT, version: '0.2.0', sameDir: same, permissions: false, messages: false };
+    expect(parseArgs(['install', '--com-navegador'])).toMatchObject({ browser: true });
+    expect(parseArgs(['install'])).not.toHaveProperty('browser');
+    expect(argsOf(planInstall(stateOf([], null), { ...base, browser: true })).slice(1)).toEqual([`plugin install ${MOD_PLUGIN} --scope user`, `plugin install ${BROWSER_PLUGIN} --scope user`]);
+    const kept = planInstall(stateOf([plugin(MOD_PLUGIN, { version: '0.2.0' }), plugin(BROWSER_PLUGIN, { version: '0.1.0' })]), base);
+    expect(argsOf(kept)).toContain(`plugin update ${BROWSER_PLUGIN} --scope user`);
+    expect(kept.plugins).toContain(BROWSER_PLUGIN);
+    expect(argsOf(planUninstall(stateOf([plugin(BROWSER_PLUGIN)])))).toContain(`plugin uninstall ${BROWSER_PLUGIN} --scope user`);
   });
 
   it('install: do zero adiciona o marketplace e os três plugins (escopo user); --sem-permissoes e --sem-mensagens deixam o seu de fora', () => {

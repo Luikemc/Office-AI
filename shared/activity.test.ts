@@ -233,3 +233,14 @@ describe('AskUserQuestion no escritório', () => {
     expect(describeTool('AskUserQuestion', {}).questions).toBeUndefined();
   });
 });
+
+describe('navegador do escritório (plugin navegador)', () => {
+  it('textos em português por ferramenta, com o nome do servidor do plugin ou o curto', () => {
+    expect(describeTool('mcp__plugin_navegador_navegador__abrir', { url: 'https://www.exemplo.com/a' })).toMatchObject({ kind: 'browser', text: 'Abrindo exemplo.com' });
+    expect(describeTool('mcp__navegador__ler', { tabId: 't1' }).text).toBe('Lendo a página');
+    expect(describeTool('mcp__navegador__clicar', { elemento: 'botão Enviar' }).text).toBe('Clicando em botão Enviar');
+    expect(describeTool('mcp__navegador__digitar', { texto: 'oi', enviar: true }).text).toBe('Digitando e enviando');
+    expect(describeTool('mcp__navegador__digitar', { texto: 'oi' }).text).toBe('Digitando na página');
+    expect(describeTool('mcp__navegador__abas', {}).kind).toBe('browser');
+  });
+});
