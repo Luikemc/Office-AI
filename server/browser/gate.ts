@@ -106,17 +106,48 @@ export interface ElementFacts {
   /** Texto, value, aria-label, title do alvo. */
   text?: string;
   href?: string;
+  /** Campo onde se escreve (input de texto, textarea, select, contenteditable): Enter nele pode enviar o formulário. */
+  editable?: boolean;
 }
 
 export type BrowserAction =
   | { kind: 'clicar'; url: string; element: ElementFacts }
   | { kind: 'digitar'; url: string; element: ElementFacts; enviar: boolean }
-  | { kind: 'download'; url: string };
+  | { kind: 'download'; url: string }
+  /** Tecla na página; `element` = o elemento com o foco (undefined = não deu para saber: trava se a tecla envia). */
+  | { kind: 'tecla'; url: string; key: string; element?: ElementFacts }
+  | { kind: 'selecionar'; url: string }
+  | { kind: 'arquivo'; url: string };
+
+/** Última tecla de uma combinação ("Control+Enter" → "Enter"). */
+function mainKey(key: string): string {
+  const parts = key.split('+');
+  return parts.at(-1) || (key.endsWith('+') ? '+' : key);
+}
+
+/** Botão, link ou item de menu (o que Enter/Espaço aciona). */
+function pressable(e: ElementFacts): boolean {
+  return /^(button|link|menuitem|menuitemcheckbox|menuitemradio|tab|switch|option)$/.test(e.role) || /^(button|a|summary)$/.test(e.tag ?? '') || (e.tag === 'input' && /^(submit|button|image|reset)$/.test(e.type ?? ''));
+}
 
 /** Motivo para pedir aprovação (texto para o cartão), ou undefined = pode seguir. */
 export function gateReason(a: BrowserAction): string | undefined {
   if (a.kind === 'download') return tr('baixar um arquivo');
+  if (a.kind === 'arquivo') return tr('enviar arquivos do seu computador para o site');
   if (lockedSite(a.url)) return tr('ação no WhatsApp');
+  if (a.kind === 'selecionar') return undefined;
+  if (a.kind === 'tecla') {
+    const k = mainKey(a.key);
+    const enter = k === 'Enter' || k === 'NumpadEnter';
+    const space = k === ' ' || k === 'Space';
+    if (!enter && !space) return undefined;
+    const f = a.element;
+    if (!f) return enter ? tr('apertar Enter (pode enviar)') : undefined;
+    if (f.editable && enter) return tr('apertar Enter num campo de formulário (pode enviar)');
+    if (pressable(f)) return gateReason({ kind: 'clicar', url: a.url, element: f }) ? tr('apertar {0} num botão que envia, paga, confirma ou apaga', [k === ' ' ? tr('Espaço') : k]) : undefined;
+    if (f.inForm && enter) return tr('apertar Enter num campo de formulário (pode enviar)');
+    return undefined;
+  }
   const e = a.element;
   if (a.kind === 'digitar') return a.enviar ? tr('digitar e enviar (Enter)') : undefined;
   if (e.submits) return tr('enviar um formulário');

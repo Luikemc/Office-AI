@@ -17,6 +17,15 @@ do meio (0.**3**.0).
   vê as próprias abas. Enviar, submeter, pagar, confirmar, apagar ou publicar, toda ação no WhatsApp e downloads
   esperam a sua aprovação no escritório: a sala levanta a mão e o cartão mostra o site, o elemento e o texto exato
   que vai ser digitado. Sem o escritório aberto, a ação é recusada. Instale com `npm run mod:install -- --com-navegador`.
+- **Navegador para sistemas de verdade.** Ferramentas novas: `navegar` (outro endereço, voltar, avançar, recarregar
+  na mesma aba), `rolar` e `ler` com `parte` (tabelas e páginas longas inteiras; a leitura avisa quando há mais),
+  `tecla` (Tab, Escape, setas, Enter...), `selecionar` (listas `<select>`), `passar_mouse` (menus), `esperar` (texto
+  que demora a aparecer), `ver_tela` (o agente vê uma foto da página: gráficos, imagens), `pedir_ajuda` e
+  `enviar_arquivo`. Login com senha, captcha, código de verificação e QR são com você: o agente chama `pedir_ajuda`, a
+  aba vem para a frente, a sala levanta a mão com "Ajuda no navegador: …" e você faz na janela do Chrome e clica
+  Permitir; o login fica salvo no perfil. O agente não digita senha (o campo é recusado). Enter num campo de
+  formulário e todo envio de arquivo (só da pasta do projeto, com os nomes no cartão) esperam a sua aprovação.
+  `npm run sistema:exemplo` sobe um sistema de mentira local para testar.
 - **Documentos: o agente lê e confere PDF, planilha e Word da pasta do projeto.** Plugin novo `documentos` (um
   servidor MCP local, Node puro, sem chave de API): `ler_documento` devolve o texto de cada página do PDF, as células
   da planilha (`Plan1!B7`, com fórmula e valor guardado), as linhas do CSV e os parágrafos e tabelas do Word, com os
@@ -32,6 +41,12 @@ do meio (0.**3**.0).
   depois do seu ok. Recusou ou não respondeu, a caixa de texto é apagada e nada sai. Nome repetido ou que não bate
   exatamente volta para o agente perguntar a você; grupos ficam de fora. Uma mensagem por vez, com 20 s entre
   envios. O agente também pode conferir se o WhatsApp está conectado e ler as últimas mensagens de uma conversa.
+
+### Mudado
+
+- **Porta padrão 4748.** O beta-tester agora abre em http://localhost:4748 para rodar junto com o Habblaud original
+  (4747). `HABBLAUD_PORT` continua trocando. Os hooks dos plugins `habblaud*` (compartilhados com o Habblaud original)
+  continuam na 4747.
 
 ## [1.0.3] - 2026-10-16
 

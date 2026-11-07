@@ -89,9 +89,9 @@ describe('trava do navegador no registro', () => {
   it('sem página aberta ou sessão desconhecida: recusa na hora, mandando abrir o escritório', async () => {
     const { registry, setViewers } = setup({ viewers: 0 });
     const gate = registryGate(registry, 4749);
-    expect(await gate(req())).toEqual({ ok: false, message: expect.stringMatching(/abrir o beta-tester \(http:\/\/localhost:4749\)/) });
+    expect(await gate(req())).toEqual({ ok: false, message: expect.stringMatching(/abrir o beta-tester \(http:\/\/localhost:4749\)/), skip: 'no-viewers' });
     setViewers(1);
-    expect(await gate(req({ sessionId: 'outra' }))).toEqual({ ok: false, message: expect.stringMatching(/não conhece esta sessão/) });
+    expect(await gate(req({ sessionId: 'outra' }))).toEqual({ ok: false, message: expect.stringMatching(/não conhece esta sessão/), skip: 'unknown-session' });
     expect(registry.size).toBe(0);
   });
 
@@ -142,5 +142,34 @@ describe('cartão do WhatsApp', () => {
     const r: GateRequest = { sessionId: 's', tool: 'whatsapp_enviar', url: 'https://web.whatsapp.com/', reason: 'x', element: 'Ana', text: 'linha 1\nlinha 2' };
     expect(cardText(r)).toBe('Enviar no WhatsApp para Ana');
     expect(cardInput(r)).toBe('Para: Ana (nome no cabeçalho da conversa aberta)\nMensagem que será enviada:\nlinha 1\nlinha 2');
+  });
+});
+
+describe('cartões das ferramentas novas', () => {
+  it('pedir_ajuda: cartão "Ajuda no navegador", espera longa, recusa = "não vai fazer"', async () => {
+    const { office, registry, clock } = setup();
+    const gate = registryGate(registry, 4748);
+    const p = gate(req({ tool: 'ajuda', reason: 'login', text: 'login no sistema', url: 'http://127.0.0.1:4800/login', timeoutMs: 15 * 60_000 }));
+    await flush();
+    const a = office.commit().snapshot.agents.find((x) => x.id === MAIN)!;
+    expect(a.status).toBe('waiting');
+    expect(a.permission).toMatchObject({ tool: 'mcp__navegador__pedir_ajuda', icon: '🙋', text: expect.stringMatching(/^Ajuda no navegador: login no sistema — faça na janela do Chrome e clique Permitir/) });
+    expect(registry.detail(a.permission!.id)!.input).toMatch(/Nunca mande senhas/);
+    // Passa dos 5 min padrão e continua esperando.
+    clock.advance(10 * 60_000);
+    registry.tick();
+    expect(registry.size).toBe(1);
+    registry.decide(a.permission!.id, { behavior: 'deny' });
+    expect(await p).toEqual({ ok: false, message: expect.stringMatching(/não vai fazer/) });
+  });
+
+  it('tecla, selecionar e enviar_arquivo: o que vai acontecer está no cartão', () => {
+    const base = { sessionId: 's', url: 'https://erp.example/clientes', reason: 'r' };
+    expect(cardText({ ...base, tool: 'tecla', text: 'Enter' })).toBe('Apertar Enter em erp.example');
+    expect(cardInput({ ...base, tool: 'tecla', text: 'Enter', element: 'textbox “Nome”' })).toMatch(/Tecla: Enter/);
+    expect(cardText({ ...base, tool: 'selecionar', text: 'SP' })).toBe('Escolher SP em erp.example');
+    const up: GateRequest = { ...base, tool: 'enviar_arquivo', files: ['docs/a.pdf (1.0 KB)', 'b.png (3 B)'] };
+    expect(cardText(up)).toBe('Enviar 2 arquivo(s) para erp.example');
+    expect(cardInput(up)).toMatch(/Arquivos que serão enviados:\n- docs\/a\.pdf \(1\.0 KB\)\n- b\.png \(3 B\)/);
   });
 });

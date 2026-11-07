@@ -667,8 +667,35 @@ function describeMcp(name: string, input: Record<string, unknown>): ActivityDesc
         const url = str(input.url);
         return make('browser', '🧭', url ? tr('Abrindo {0}', [domainOf(url)]) : tr('Navegando no navegador'), url);
       }
+      case 'navegar': {
+        const url = str(input.url);
+        if (url) return make('browser', '🧭', tr('Abrindo {0}', [domainOf(url)]), url);
+        if (input.acao === 'voltar') return make('browser', '🧭', tr('Voltando uma página'));
+        if (input.acao === 'avancar') return make('browser', '🧭', tr('Avançando uma página'));
+        return make('browser', '🧭', tr('Recarregando a página'));
+      }
       case 'ler':
         return make('browser', '🧭', tr('Lendo a página'));
+      case 'rolar':
+        return make('browser', '📜', input.direcao === 'cima' ? tr('Rolando a página para cima') : tr('Rolando a página'));
+      case 'tecla': {
+        const key = str(input.tecla);
+        return make('browser', '⌨️', key ? tr('Apertando {0}', [truncate(key, 20)]) : tr('Apertando uma tecla'), el);
+      }
+      case 'selecionar':
+        return make('browser', '🖱️', tr('Escolhendo uma opção'), el);
+      case 'passar_mouse':
+        return make('browser', '🖱️', tr('Abrindo um menu'));
+      case 'esperar':
+        return make('browser', '⏳', tr('Esperando a página'), str(input.texto));
+      case 'ver_tela':
+        return make('browser', '📸', tr('Olhando a tela'));
+      case 'pedir_ajuda': {
+        const why = str(input.motivo);
+        return make('browser', '🙋', why ? tr('Pediu ajuda: {0}', [truncate(why, 30)]) : tr('Pediu ajuda no navegador'), why);
+      }
+      case 'enviar_arquivo':
+        return make('browser', '📎', tr('Enviando arquivo ao site'), el);
       case 'clicar':
         return make('browser', '🖱️', el ? tr('Clicando em {0}', [truncate(el, 30)]) : tr('Clicando na página'), el);
       case 'digitar':

@@ -26,6 +26,12 @@ serve só de referência de arquitetura: nenhuma linha de código dele entra aqu
 3. Confirmação antes de agir.
 4. WhatsApp Web — `whatsapp_status`, `whatsapp_enviar` (com trava), `whatsapp_ler` (`server/browser/whatsapp.ts`).
 5. Documentos (em paralelo com 2–3).
+6. Navegador para sistemas de verdade — `navegar`, `rolar` e `ler parte` (páginas longas), `tecla`, `selecionar`,
+   `passar_mouse`, `esperar`, `ver_tela` (JPEG para o modelo), `pedir_ajuda` (login/captcha/2FA/QR com o usuário,
+   pelo cartão do escritório; o modelo nunca digita senha) e `enviar_arquivo` (só da pasta do projeto, sempre com
+   aprovação). Sistema de mentira para testar: `npm run sistema:exemplo` (porta 4800, `admin`/`exemplo123`).
+   Porta padrão do beta-tester agora é 4748 (`server/config.ts`, `vite.config.ts`, MCP `navegador`); os hooks
+   `habblaud*` seguem na 4747 (compartilhados com o Habblaud original).
 
 ## Notas
 

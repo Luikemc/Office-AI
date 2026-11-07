@@ -245,6 +245,16 @@ describe('navegador do escritório (plugin navegador)', () => {
     expect(describeTool('mcp__plugin_navegador_navegador__whatsapp_enviar', { contato: 'Ana', texto: 'oi' })).toMatchObject({ kind: 'browser', text: 'WhatsApp: escrevendo para Ana' });
     expect(describeTool('mcp__navegador__whatsapp_ler', { contato: 'Ana' }).text).toBe('WhatsApp: lendo a conversa com Ana');
     expect(describeTool('mcp__navegador__whatsapp_status', {}).text).toBe('WhatsApp: conferindo a conexão');
+    expect(describeTool('mcp__navegador__navegar', { tabId: 't1', url: 'https://sistema.exemplo/clientes' }).text).toBe('Abrindo sistema.exemplo');
+    expect(describeTool('mcp__navegador__navegar', { tabId: 't1', acao: 'voltar' }).text).toBe('Voltando uma página');
+    expect(describeTool('mcp__navegador__rolar', { tabId: 't1' }).text).toBe('Rolando a página');
+    expect(describeTool('mcp__navegador__tecla', { tabId: 't1', tecla: 'Enter' }).text).toBe('Apertando Enter');
+    expect(describeTool('mcp__navegador__selecionar', { tabId: 't1', ref: 'r1-e2', valores: ['SP'] }).text).toBe('Escolhendo uma opção');
+    expect(describeTool('mcp__navegador__passar_mouse', { tabId: 't1', ref: 'r1-e2' }).text).toBe('Abrindo um menu');
+    expect(describeTool('mcp__navegador__esperar', { tabId: 't1', texto: 'Pronto' }).text).toBe('Esperando a página');
+    expect(describeTool('mcp__navegador__ver_tela', { tabId: 't1' })).toMatchObject({ kind: 'browser', text: 'Olhando a tela' });
+    expect(describeTool('mcp__navegador__pedir_ajuda', { tabId: 't1', motivo: 'login' }).text).toBe('Pediu ajuda: login');
+    expect(describeTool('mcp__navegador__enviar_arquivo', { tabId: 't1', ref: 'r1-e2', caminhos: ['a.pdf'] }).text).toBe('Enviando arquivo ao site');
     expect(JSON.stringify(describeTool('mcp__navegador__whatsapp_enviar', { contato: 'Ana', texto: 'segredo do relatório' }))).not.toContain('segredo');
   });
 });

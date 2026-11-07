@@ -61,6 +61,10 @@ export interface PageSnapshot {
   elements: Map<string, ElementInfo>;
   /** Cortou texto ou elementos. */
   truncated: boolean;
+  /** Em quantas partes (`ler` com `parte`) a página inteira cabe, na ordem da página. 1 = cabe numa leitura. */
+  parts: number;
+  /** A parte devolvida (só com `part`). */
+  part?: number;
 }
 
 /** Ref que o modelo vê: a revisão + a ref do Playwright. */
@@ -109,10 +113,13 @@ function intersects(n: AriaNode, vp: Viewport): boolean {
 
 class Writer {
   lines: string[] = [];
+  /** Refs criadas em cada linha (mesma posição de `lines`), para dividir em partes. */
+  lineRefs: Array<Array<[string, ElementInfo]>> = [];
   size = 0;
   full = false;
   truncated = false;
   readonly elements = new Map<string, ElementInfo>();
+  private pending: Array<[string, ElementInfo]> = [];
   constructor(
     private readonly revision: number,
     private readonly maxText: number,
@@ -128,6 +135,8 @@ class Writer {
       return false;
     }
     this.lines.push(l);
+    this.lineRefs.push(this.pending);
+    this.pending = [];
     this.size += l.length + 1;
     return true;
   }
@@ -143,7 +152,9 @@ class Writer {
     if (actionable(n) && n.ref) {
       if (this.elements.size < this.maxElements) {
         const ref = publicRef(this.revision, n.ref);
-        this.elements.set(ref, { raw: n.ref, role: n.role ?? 'generic', name: clip(n.name ?? n.text ?? '', NODE_TEXT_MAX) });
+        const info = { raw: n.ref, role: n.role ?? 'generic', name: clip(n.name ?? n.text ?? '', NODE_TEXT_MAX) };
+        this.elements.set(ref, info);
+        this.pending.push([ref, info]);
         s += ` [ref=${ref}]`;
       } else this.truncated = true;
     }
@@ -190,29 +201,61 @@ function allInView(n: AriaNode, vp: Viewport, memo: Map<AriaNode, boolean>): boo
   return r;
 }
 
+/** Divide a página inteira (na ordem) em partes de até `maxText` caracteres e `maxElements` refs. */
+function splitParts(w: Writer, maxText: number, maxElements: number): Array<{ lines: string[]; refs: Array<[string, ElementInfo]> }> {
+  const parts: Array<{ lines: string[]; refs: Array<[string, ElementInfo]> }> = [];
+  let cur = { lines: [] as string[], refs: [] as Array<[string, ElementInfo]> };
+  let size = 0;
+  w.lines.forEach((line, i) => {
+    const refs = w.lineRefs[i] ?? [];
+    if (cur.lines.length && (size + line.length + 1 > maxText || cur.refs.length + refs.length > maxElements)) {
+      parts.push(cur);
+      cur = { lines: [], refs: [] };
+      size = 0;
+    }
+    cur.lines.push(line);
+    cur.refs.push(...refs);
+    size += line.length + 1;
+  });
+  if (cur.lines.length || !parts.length) parts.push(cur);
+  return parts;
+}
+
 /**
  * Texto da página a partir da árvore. Se tudo cabe, vai na ordem da página. Se não cabe, primeiro o que está na tela
- * (pela caixa de cada nó, `boxes: true`), depois o resto até o limite.
+ * (pela caixa de cada nó, `boxes: true`), depois o resto até o limite; `parts` diz em quantas partes a página inteira
+ * cabe. Com `part` (1, 2, ...), devolve só aquele pedaço da página inteira, na ordem (para páginas longas).
  */
 export function renderSnapshot(
   tree: unknown,
   revision: number,
   viewport: Viewport | null,
-  limits: { maxText?: number; maxElements?: number } = {},
+  limits: { maxText?: number; maxElements?: number; part?: number } = {},
 ): PageSnapshot {
   const roots = (Array.isArray(tree) ? tree : [tree]).filter((x): x is AriaNode | string => typeof x === 'string' || isNode(x));
   const maxText = limits.maxText ?? MAX_TEXT;
   const maxElements = limits.maxElements ?? MAX_ELEMENTS;
-  let w = new Writer(revision, maxText, maxElements);
-  walk(w, roots, 0, () => true);
-  if (!w.truncated || !viewport) return { text: w.lines.join('\n'), elements: w.elements, truncated: w.truncated };
-
-  w = new Writer(revision, maxText, maxElements);
+  // A página inteira, sem limite (a árvore já vem com os textos cortados por nó).
+  const whole = new Writer(revision, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY);
+  walk(whole, roots, 0, () => true);
+  const fits = whole.size <= maxText && whole.elements.size <= maxElements;
+  if (fits) return { text: whole.lines.join('\n'), elements: whole.elements, truncated: false, parts: 1, ...(limits.part ? { part: 1 } : {}) };
+  const parts = splitParts(whole, maxText, maxElements);
+  if (limits.part !== undefined) {
+    const k = Math.min(Math.max(1, Math.floor(limits.part)), parts.length);
+    const chosen = parts[k - 1];
+    return { text: chosen.lines.join('\n'), elements: new Map(chosen.refs), truncated: true, parts: parts.length, part: k };
+  }
+  if (!viewport) {
+    const first = parts[0];
+    return { text: first.lines.join('\n'), elements: new Map(first.refs), truncated: true, parts: parts.length };
+  }
+  const w = new Writer(revision, maxText, maxElements);
   const some = new Map<AriaNode, boolean>();
   const all = new Map<AriaNode, boolean>();
   w.line(0, '# na tela');
   walk(w, roots, 0, (n) => anyInView(n, viewport, some));
   w.line(0, '# fora da tela');
   walk(w, roots, 0, (n) => !allInView(n, viewport, all));
-  return { text: w.lines.join('\n'), elements: w.elements, truncated: true };
+  return { text: w.lines.join('\n'), elements: w.elements, truncated: true, parts: parts.length };
 }

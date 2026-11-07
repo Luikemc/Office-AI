@@ -172,6 +172,14 @@ export function messagesOffReason(env: NodeJS.ProcessEnv, host: string, inDocker
 }
 
 /**
+ * Porta HTTP padrão do beta-tester (HABBLAUD_PORT troca). 4748, e não a 4747 do Habblaud original, para os dois rodarem
+ * juntos. Os hooks dos plugins habblaud* (compartilhados com o Habblaud original) continuam apontando para a 4747.
+ */
+export const DEFAULT_PORT = 4748;
+/** No Node, a porta do celular (padrão 4748) pula para esta quando bateria com a porta HTTP. */
+export const REMOTE_FALLBACK_PORT = 4749;
+
+/**
  * O servidor do Habblaud World quando HABBLAUD_WORLD_URL está ausente ou vazia: o World vem ligado por padrão, mas nada
  * sai do computador antes de a pessoa criar a conta e entrar (server/world/service.ts). HABBLAUD_WORLD=0 desliga tudo.
  */
@@ -230,8 +238,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, argv: string[] 
   const host = env.HABBLAUD_HOST?.trim() || '127.0.0.1';
   const pkg = readPackage(rootDir);
   const remote = parseRemoteConfig(env, inDocker);
+  const httpPort = Number.isFinite(port) && port > 0 && port < 65536 ? port : DEFAULT_PORT;
+  // A porta do celular tem o mesmo padrão (4748): sem HABBLAUD_REMOTE_PORT explícita, ela cede a vez à porta HTTP.
+  if (remote.config && !inDocker && !env.HABBLAUD_REMOTE_PORT?.trim() && remote.config.port === httpPort) remote.config.port = REMOTE_FALLBACK_PORT;
   return {
-    port: Number.isFinite(port) && port > 0 && port < 65536 ? port : 4747,
+    port: httpPort,
     host,
     dev: argv.includes('--dev'),
     demo: isTruthy(env.HABBLAUD_DEMO),

@@ -17,7 +17,8 @@ npm install
 npm run dev
 ```
 
-O escritório de desenvolvimento fica em <http://localhost:4747>.
+O escritório de desenvolvimento fica em <http://localhost:4748> (o beta-tester usa a 4748 para rodar junto com o Habblaud
+original, que fica na 4747; `HABBLAUD_PORT` troca).
 
 ## Textos e traduções
 

@@ -2,9 +2,18 @@
 // sem Origin) já foi conferida em http/app.ts; o guard já exigiu JSON nos POST.
 //
 //   POST /api/browser/abrir     {sessionId, url}                          → {ok, aba, texto}
-//   POST /api/browser/ler       {sessionId, tabId}                        → {ok, aba, texto}
+//   POST /api/browser/navegar   {sessionId, tabId, url? | acao?}          → {ok, aba, texto}  (acao: voltar|avancar|recarregar)
+//   POST /api/browser/ler       {sessionId, tabId, parte?}                → {ok, aba, texto}
+//   POST /api/browser/rolar     {sessionId, tabId, direcao?, ref?, quanto?} → {ok, aba, texto}
 //   POST /api/browser/clicar    {sessionId, tabId, ref, elemento}         → {ok, aba, texto}
 //   POST /api/browser/digitar   {sessionId, tabId, ref, texto, enviar?}   → {ok, aba, texto}
+//   POST /api/browser/tecla     {sessionId, tabId, tecla, ref?, elemento?} → {ok, aba, texto}
+//   POST /api/browser/selecionar {sessionId, tabId, ref, valores}         → {ok, aba, texto}
+//   POST /api/browser/passar_mouse {sessionId, tabId, ref}                → {ok, aba, texto}
+//   POST /api/browser/esperar   {sessionId, tabId, texto?, sumir?, ms?}   → {ok, aba, texto}
+//   POST /api/browser/ver_tela  {sessionId, tabId, ref?}                  → {ok, aba, texto, imagem (base64), mimeType}
+//   POST /api/browser/pedir_ajuda {sessionId, tabId, motivo}              → {ok, aba, texto}
+//   POST /api/browser/enviar_arquivo {sessionId, tabId, ref, caminhos}    → {ok, aba, texto}
 //   POST /api/browser/abas      {sessionId}                               → {ok, abas}
 //   POST /api/browser/fechar    {sessionId, tabId}                        → {ok, fechada}
 //   POST /api/browser/whatsapp_status {sessionId}                         → {ok, estado, texto}
@@ -24,7 +33,26 @@ import { BrowserError, type BrowserService } from './service';
 
 const STATUS: Record<BrowserError['code'], number> = { invalid: 400, 'not-found': 404, stale: 409, denied: 403, 'too-many': 429, disabled: 503, failed: 500, 'not-ready': 409, ambiguous: 409 };
 
-const ACTIONS = new Set(['abrir', 'ler', 'clicar', 'digitar', 'abas', 'fechar', 'whatsapp_status', 'whatsapp_enviar', 'whatsapp_ler']);
+const ACTIONS = new Set([
+  'abrir',
+  'navegar',
+  'ler',
+  'rolar',
+  'clicar',
+  'digitar',
+  'tecla',
+  'selecionar',
+  'passar_mouse',
+  'esperar',
+  'ver_tela',
+  'pedir_ajuda',
+  'enviar_arquivo',
+  'abas',
+  'fechar',
+  'whatsapp_status',
+  'whatsapp_enviar',
+  'whatsapp_ler',
+]);
 
 type Rec = Record<string, unknown>;
 
@@ -43,8 +71,26 @@ export function createBrowserRoutes(browser: BrowserService): (req: IncomingMess
     switch (action) {
       case 'abrir':
         return { ok: true, ...(await browser.abrir(sid, body.url)) };
+      case 'navegar':
+        return { ok: true, ...(await browser.navegar(sid, body.tabId, body.url, body.acao)) };
       case 'ler':
-        return { ok: true, ...(await browser.ler(sid, body.tabId)) };
+        return { ok: true, ...(await browser.ler(sid, body.tabId, body.parte)) };
+      case 'rolar':
+        return { ok: true, ...(await browser.rolar(sid, body.tabId, body.direcao, body.ref, body.quanto)) };
+      case 'tecla':
+        return { ok: true, ...(await browser.tecla(sid, body.tabId, body.tecla, body.ref, body.elemento, signal)) };
+      case 'selecionar':
+        return { ok: true, ...(await browser.selecionar(sid, body.tabId, body.ref, body.valores, body.elemento, signal)) };
+      case 'passar_mouse':
+        return { ok: true, ...(await browser.passarMouse(sid, body.tabId, body.ref)) };
+      case 'esperar':
+        return { ok: true, ...(await browser.esperar(sid, body.tabId, body.texto, body.sumir, body.ms)) };
+      case 'ver_tela':
+        return { ok: true, ...(await browser.verTela(sid, body.tabId, body.ref)) };
+      case 'pedir_ajuda':
+        return { ok: true, ...(await browser.pedirAjuda(sid, body.tabId, body.motivo, signal)) };
+      case 'enviar_arquivo':
+        return { ok: true, ...(await browser.enviarArquivo(sid, body.tabId, body.ref, body.caminhos, body.elemento, signal)) };
       case 'clicar':
         return { ok: true, ...(await browser.clicar(sid, body.tabId, body.ref, body.elemento, signal)) };
       case 'digitar':

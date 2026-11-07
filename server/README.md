@@ -4,7 +4,7 @@ Node puro (sem dependências de runtime). Observa as sessões **abertas** do Cla
 contas da máquina, mantém o modelo do escritório e transmite tudo via SSE.
 
 ```
-npm run dev      # servidor + Vite (middleware, HMR) em http://127.0.0.1:4747
+npm run dev      # servidor + Vite (middleware, HMR) em http://127.0.0.1:4748
 npm run build && npm start   # produção: serve dist/client
 ```
 
@@ -274,9 +274,18 @@ e repassa para `POST /api/browser/<ferramenta>` com `{sessionId, ...}`:
 | Ferramenta | Corpo | Resposta |
 | --- | --- | --- |
 | `abrir` | `{url}` (só http/https; sem esquema vira https) | `{ok, aba, texto}`, aba nova da sessão |
-| `ler` | `{tabId}` | `{ok, aba, texto}` |
+| `navegar` | `{tabId, url?, acao?}` (um dos dois; `acao`: `voltar`, `avancar`, `recarregar`) | `{ok, aba, texto}`, mesma aba |
+| `ler` | `{tabId, parte?}` | `{ok, aba, texto}` |
+| `rolar` | `{tabId, direcao?: baixo\|cima, ref?, quanto?: pagina\|metade}` | `{ok, aba, texto}` |
 | `clicar` | `{tabId, ref, elemento}` | `{ok, aba, texto}` |
 | `digitar` | `{tabId, ref, texto, enviar?, elemento?}` | `{ok, aba, texto}` |
+| `tecla` | `{tabId, tecla, ref?, elemento?}` (nomes do Playwright: `Enter`, `Tab`, `ArrowDown`, `Control+a`...) | `{ok, aba, texto}` |
+| `selecionar` | `{tabId, ref, valores: string[], elemento?}` (texto ou valor da opção de um `<select>` nativo) | `{ok, aba, texto}` |
+| `passar_mouse` | `{tabId, ref}` | `{ok, aba, texto}` |
+| `esperar` | `{tabId, texto?, sumir?, ms?}` (texto: até 30 s; só `ms`: até 10 s) | `{ok, aba, texto}` |
+| `ver_tela` | `{tabId, ref?}` | `{ok, aba, texto, imagem, mimeType: 'image/jpeg'}` (base64; o MCP devolve como imagem) |
+| `pedir_ajuda` | `{tabId, motivo}` | `{ok, aba, texto}` depois que o usuário termina (até 15 min) |
+| `enviar_arquivo` | `{tabId, ref, caminhos: string[], elemento?}` (1 a 10, da pasta do projeto) | `{ok, aba, texto}` |
 | `abas` | `{}` | `{ok, abas: [{id, title, url, revision}]}` |
 | `fechar` | `{tabId}` | `{ok, fechada}` |
 | `whatsapp_status` | `{}` | `{ok, estado, texto}` (`conectado`, `qr`, `outra-janela`, `incompativel`, `carregando`) |
@@ -286,14 +295,35 @@ e repassa para `POST /api/browser/<ferramenta>` com `{sessionId, ...}`:
 `texto` é a leitura da página: aba e revisão, título, URL, avisos (aba nova aberta pela página, `alert`/`confirm`
 fechados sem confirmar, downloads) e a árvore de acessibilidade (`page.ariaSnapshotJSON({mode: 'ai'})`, que atravessa
 shadow DOM e iframes) em texto compacto, com ref só nos elementos de ação (`[ref=r3-e7]`: revisão 3 da aba). Limites:
-20 000 caracteres e 200 refs; cortando, primeiro o que está na tela. Toda ação devolve uma leitura nova; ref de outra
+20 000 caracteres e 200 refs; cortando, primeiro o que está na tela, e o cabeçalho diz "há mais: use `rolar` ou `ler`
+com parte 1 a N". `ler` com `parte` devolve só aquele pedaço da página inteira, na ordem (cada parte dentro dos
+limites, com refs só dela), e diz se há a próxima — assim uma tabela de 300 linhas é lida inteira. Toda ação devolve uma leitura nova; ref de outra
 revisão ou que não existe mais → 409 "faça `ler` de novo". Cada aba tem uma fila (uma ação por vez); cada sessão só
 vê as próprias abas (a de outra sessão responde como desconhecida); popups viram abas da mesma sessão. Clicar usa a
 espera do Playwright (visível, estável, não coberto) e depois espera a página assentar (load + DOM quieto, até
-1,5 s); `digitar` usa `fill` e, com `enviar`, aperta Enter na mesma operação. Não há ferramenta de rodar código na
-página nem de enviar arquivo.
+1,5 s); `digitar` usa `fill` e, com `enviar`, aperta Enter na mesma operação; campo `type=password` é recusado (o
+modelo não digita senha: "use `pedir_ajuda`"). `rolar` rola a página (ou o painel com rolagem própria em volta de
+`ref`) e diz se chegou ao fim; `passar_mouse` abre menus de passar o mouse; `selecionar` usa `selectOption` só em
+`<select>` nativo (opção que não existe → lista as opções; combobox feito à mão → "use clicar"); `esperar` espera o
+texto aparecer/sumir no `innerText` da página; `ver_tela` tira um JPEG (qualidade 60) da área visível (1280×800) ou de
+um elemento (até 1280×1600), sem mudar a revisão. Não há ferramenta de rodar código na página.
 
-**Trava** (`browser/gate.ts`, no servidor): pedem a sua aprovação `digitar` com `enviar: true`; `clicar` num elemento
+**Ajuda do usuário** (`pedir_ajuda`): para login com senha, captcha, código (2FA) e QR. Traz a aba para a frente
+(`page.bringToFront()`) e põe no escritório, pelo mesmo `requestInternal` da trava, o cartão
+`mcp__navegador__pedir_ajuda(site)` "Ajuda no navegador: <motivo> — faça na janela do Chrome e clique Permitir quando
+terminar" (a sala levanta a mão). Espera até 15 min, fora da fila da aba; Permitir → leitura nova; Recusar → `403
+denied` "o usuário disse que não vai fazer"; sem escritório aberto → `200` com o texto para o modelo pedir no chat
+que o usuário faça na janela do Chrome (sem mandar senha no chat) e depois chamar `ler`. O login fica no perfil.
+
+**Arquivos** (`enviar_arquivo`): só da pasta do projeto da sessão (o cwd da sala dela no escritório,
+`BrowserOptions.projectDir`); caminho com `..`, absoluto fora dela, link que leva para fora, pasta, arquivo que não
+existe ou acima de 100 MB → recusado antes do cartão. Usa `setInputFiles` no `input type=file` ou a escolha de
+arquivo (`filechooser`) aberta pelo clique no botão. Confere os caminhos de novo depois da aprovação.
+
+**Trava** (`browser/gate.ts`, no servidor): pedem a sua aprovação `digitar` com `enviar: true`; `tecla` Enter
+(também com Control/Meta) num campo de formulário (input de texto, textarea, select, contenteditable ou dentro de um
+`<form>`), Enter/Espaço num botão que o `clicar` travaria, e Enter quando não dá para saber onde está o foco (iframe de
+outro site); todo `enviar_arquivo` (o cartão lista os arquivos com o tamanho e o site); `selecionar` só no WhatsApp; `clicar` num elemento
 cujo nome/texto fala em enviar, pagar, comprar, confirmar, excluir, publicar... (pt/en/es), num botão que submete um
 formulário (`type=submit`, `input` submit/image) ou num botão/link de formulário cujo nome/ação fala nisso; toda ação
 que altera a página no WhatsApp (`*.whatsapp.com`); e todo download (o arquivo vai para
@@ -556,7 +586,7 @@ em `shared/world/city.ts` (fonte da verdade; o servidor do mundo guarda a cópia
 
 | Variável | Padrão | Uso |
 | --- | --- | --- |
-| `HABBLAUD_PORT` | `4747` | porta HTTP |
+| `HABBLAUD_PORT` | `4748` | porta HTTP (4748 para rodar junto com o Habblaud original, que fica na 4747; no Docker o container continua na 4747). Os hooks dos plugins `habblaud*` usam a 4747 por padrão: para eles falarem com o beta-tester, `HABBLAUD_PORT=4748` no ambiente do Claude Code. No Node, a porta do celular (`HABBLAUD_REMOTE_PORT`, padrão 4748) pula para a 4749 quando bateria com esta |
 | `HABBLAUD_HOST` | `127.0.0.1` | interface (o Docker usa `0.0.0.0`); fora do loopback, o terminal (e as permissões e mensagens) fica desligado |
 | `HABBLAUD_BIND` | — (Compose: `127.0.0.1`) | só Docker: interface do host onde a porta é publicada, repassada ao container; só loopback liga o terminal |
 | `HABBLAUD_TERMINAL` | — | `0` desliga o terminal, as permissões e as mensagens pelo escritório (não liga com a porta exposta) |

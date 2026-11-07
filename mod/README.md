@@ -166,10 +166,12 @@ mods importam `claude-code/testing` e só rodam pelo `claude plugin test`: o `np
 ## `navegador` — navegador do escritório
 
 `navegador/.mcp.json` abre `node "${CLAUDE_PLUGIN_ROOT}/server.mjs"`: um servidor MCP stdio sem dependências
-(JSON-RPC à mão) com as ferramentas `abrir`, `ler`, `clicar`, `digitar`, `abas` e `fechar` (no Claude Code,
-`mcp__plugin_navegador_navegador__*`). Ele não abre navegador nenhum: acha a sessão em
+(JSON-RPC à mão) com as ferramentas `abrir`, `navegar`, `ler`, `rolar`, `clicar`, `digitar`, `tecla`, `selecionar`,
+`passar_mouse`, `esperar`, `ver_tela`, `pedir_ajuda`, `enviar_arquivo`, `abas`, `fechar` e as `whatsapp_*` (no Claude
+Code, `mcp__plugin_navegador_navegador__*`). Ele não abre navegador nenhum: acha a sessão em
 `<conta>/sessions/<pid do claude>.json` e repassa cada chamada para
-`http://127.0.0.1:<HABBLAUD_PORT ou 4747>/api/browser/<ferramenta>`. O Chrome, as abas e a trava (enviar, pagar,
+`http://127.0.0.1:<HABBLAUD_PORT ou 4748>/api/browser/<ferramenta>` (4748: a porta padrão do beta-tester; os hooks dos
+plugins `habblaud*`, compartilhados com o Habblaud original, continuam na 4747). O Chrome, as abas e a trava (enviar, pagar,
 confirmar, apagar, WhatsApp e downloads esperam a sua aprovação no escritório) ficam no servidor do Habblaud: veja
 "Navegador do escritório" em `server/README.md`. Habblaud fora do ar: a ferramenta responde com erro e pede para
 abrir o escritório.

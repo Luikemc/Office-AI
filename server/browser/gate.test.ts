@@ -2,7 +2,10 @@
 import { describe, expect, it } from 'vitest';
 import { gateReason, lockedSite, riskyText, type ElementFacts } from './gate';
 import { parseRef, publicRef, renderSnapshot } from './snapshot';
-import { checkSession, normalizeUrl } from './service';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { checkSession, checkUploads, normalizeUrl } from './service';
 
 const el = (over: Partial<ElementFacts> = {}): ElementFacts => ({ role: 'button', name: '', ...over });
 const click = (element: ElementFacts, url = 'https://loja.example/x') => gateReason({ kind: 'clicar', url, element });
@@ -42,6 +45,36 @@ describe('gateReason', () => {
     expect(click(el({ role: 'link', name: 'Conversas' }), 'https://web.whatsapp.com/')).toMatch(/WhatsApp/);
     expect(lockedSite('https://whatsapp.com.evil.example/')).toBe(false);
     expect(gateReason({ kind: 'download', url: 'https://x.example/a.zip' })).toBeDefined();
+  });
+});
+
+describe('trava das ferramentas novas', () => {
+  const field = el({ role: 'textbox', name: 'Nome', tag: 'input', type: 'text', editable: true, inForm: true });
+  const key = (k: string, element?: ElementFacts, url = 'https://erp.example/') => gateReason({ kind: 'tecla', url, key: k, element });
+
+  it('tecla: Enter num campo de formulário trava; Tab, setas e Escape passam; foco desconhecido + Enter trava', () => {
+    expect(key('Enter', field)).toMatch(/Enter/);
+    expect(key('Control+Enter', field)).toBeDefined();
+    expect(key('Meta+Enter', el({ role: 'textbox', tag: 'textarea', editable: true }))).toBeDefined();
+    for (const k of ['Tab', 'ArrowDown', 'Escape', 'PageDown', 'Control+a', 'a']) expect(key(k, field), k).toBeUndefined();
+    expect(key('Enter')).toBeDefined();
+    expect(key('Enter', el({ role: 'body', tag: 'body' }))).toBeUndefined();
+    expect(key('Enter', el({ role: 'link', name: 'Clientes', tag: 'a', href: 'https://erp.example/c' }))).toBeUndefined();
+  });
+
+  it('tecla: Enter ou Espaço num botão que envia trava como o clique; no WhatsApp toda tecla trava', () => {
+    const salvar = el({ role: 'button', name: 'Salvar', tag: 'button', type: 'submit', submits: true, inForm: true });
+    expect(key('Enter', salvar)).toBeDefined();
+    expect(key(' ', salvar)).toBeDefined();
+    expect(key('Space', salvar)).toBeDefined();
+    expect(key('Enter', el({ role: 'button', name: 'Menu', tag: 'button', type: 'button' }))).toBeUndefined();
+    expect(key('ArrowDown', field, 'https://web.whatsapp.com/')).toMatch(/WhatsApp/);
+  });
+
+  it('selecionar só trava no WhatsApp; enviar arquivo sempre trava', () => {
+    expect(gateReason({ kind: 'selecionar', url: 'https://erp.example/' })).toBeUndefined();
+    expect(gateReason({ kind: 'selecionar', url: 'https://web.whatsapp.com/' })).toBeDefined();
+    expect(gateReason({ kind: 'arquivo', url: 'https://erp.example/' })).toMatch(/arquivos/);
   });
 });
 
@@ -99,6 +132,27 @@ describe('fotografia', () => {
     expect(cut.truncated).toBe(true);
     expect(cut.text.split('\n').slice(0, 3)).toEqual(['# na tela', '- paragraph: na tela', '# fora da tela']);
     expect(cut.text.length).toBeLessThanOrEqual(320);
+    expect(cut.parts).toBeGreaterThan(1);
+  });
+
+  it('partes: a página inteira na ordem, cada parte dentro dos limites, refs só da parte', () => {
+    const rows = Array.from({ length: 100 }, (_, i) => ({ role: 'link', name: `linha ${i + 1}`, ref: `e${i + 10}` }));
+    const all = renderSnapshot(rows, 2, null, { maxText: 400, maxElements: 15 });
+    expect(all.truncated).toBe(true);
+    const seen: string[] = [];
+    for (let k = 1; k <= all.parts; k++) {
+      const s = renderSnapshot(rows, 2, null, { maxText: 400, maxElements: 15, part: k });
+      expect(s.part).toBe(k);
+      expect(s.parts).toBe(all.parts);
+      expect(s.text.length).toBeLessThanOrEqual(400);
+      expect(s.elements.size).toBeLessThanOrEqual(15);
+      for (const [r, info] of s.elements) expect(s.text).toContain(`[ref=${r}]`), seen.push(info.name);
+    }
+    expect(seen).toEqual(rows.map((r) => r.name));
+    // Parte além do fim: a última.
+    expect(renderSnapshot(rows, 2, null, { maxText: 400, maxElements: 15, part: 999 }).part).toBe(all.parts);
+    // Página pequena: uma parte só.
+    expect(renderSnapshot(tree, 1, null, { part: 1 })).toMatchObject({ parts: 1, part: 1, truncated: false });
   });
 });
 
@@ -107,6 +161,25 @@ describe('entradas', () => {
     expect(normalizeUrl('exemplo.com')).toBe('https://exemplo.com/');
     expect(normalizeUrl('http://127.0.0.1:8080/a')).toBe('http://127.0.0.1:8080/a');
     for (const bad of ['file:///etc/passwd', 'javascript:alert(1)', 'chrome://settings', 'data:text/html,x', '', 42]) expect(() => normalizeUrl(bad), String(bad)).toThrow();
+  });
+
+  it('arquivos para enviar: só dentro da pasta do projeto, sem "..", sem link para fora, existentes', () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'habblaud-up-'));
+    try {
+      const proj = join(tmp, 'proj');
+      mkdirSync(join(proj, 'sub'), { recursive: true });
+      writeFileSync(join(proj, 'sub', 'a.txt'), 'abc');
+      writeFileSync(join(tmp, 'fora.txt'), 'x');
+      symlinkSync(join(tmp, 'fora.txt'), join(proj, 'link.txt'));
+      symlinkSync(join(proj, 'sub', 'a.txt'), join(proj, 'dentro.txt'));
+      expect(checkUploads(proj, ['sub/a.txt']).map((f) => [f.rel, f.size])).toEqual([[join('sub', 'a.txt'), 3]]);
+      expect(checkUploads(proj, [join(proj, 'sub', 'a.txt'), 'dentro.txt']).map((f) => f.rel)).toEqual([join('sub', 'a.txt'), join('sub', 'a.txt')]);
+      for (const bad of [['../fora.txt'], ['sub/../../fora.txt'], [join(tmp, 'fora.txt')], ['link.txt'], ['nao.txt'], ['sub'], [], ['.'], Array(11).fill('sub/a.txt'), [42]]) {
+        expect(() => checkUploads(proj, bad), JSON.stringify(bad)).toThrow();
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it('sessionId: texto curto e sem caracteres estranhos', () => {
