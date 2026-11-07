@@ -89,7 +89,7 @@ describe('trava do navegador no registro', () => {
   it('sem página aberta ou sessão desconhecida: recusa na hora, mandando abrir o escritório', async () => {
     const { registry, setViewers } = setup({ viewers: 0 });
     const gate = registryGate(registry, 4749);
-    expect(await gate(req())).toEqual({ ok: false, message: expect.stringMatching(/abrir o Habblaud \(http:\/\/localhost:4749\)/) });
+    expect(await gate(req())).toEqual({ ok: false, message: expect.stringMatching(/abrir o beta-tester \(http:\/\/localhost:4749\)/) });
     setViewers(1);
     expect(await gate(req({ sessionId: 'outra' }))).toEqual({ ok: false, message: expect.stringMatching(/não conhece esta sessão/) });
     expect(registry.size).toBe(0);

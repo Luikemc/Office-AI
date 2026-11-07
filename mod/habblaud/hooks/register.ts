@@ -225,7 +225,7 @@ export function statusText(waiting: readonly WaitingAgent[]): string | undefined
   return `🏢 ${waiting.length} precisam de você: ${shown.join(', ')}${rest > 0 ? ` e mais ${rest}` : ''}`
 }
 
-/** A resposta do /habblaud com o Habblaud no ar. */
+/** A resposta do /habblaud com o beta-tester no ar. */
 export function summaryText(s: Summary, url: string): string {
   const agents = s.agents === 1 ? '1 agente' : `${s.agents} agentes`
   const waiting = s.waiting.length === 0 ? 'ninguém precisa de você' : s.waiting.length === 1 ? '1 precisa de você' : `${s.waiting.length} precisam de você`
@@ -253,7 +253,7 @@ let lastWrite: { key: string; at: number } | undefined
 let lastStatus: string | undefined | null = null
 let timer: { cancel: () => void } | undefined
 let timerMs = 0
-/** Uma pergunta por vez: um Habblaud lento não acumula perguntas. */
+/** Uma pergunta por vez: um beta-tester lento não acumula perguntas. */
 let polling = false
 
 /** O ambiente da sessão, lido uma vez por carga (cada nome escrito por extenso, como a análise exige). */
@@ -301,7 +301,7 @@ async function askHabblaud($: EngineInterface, port: number, query: string): Pro
   try {
     const res = await Promise.race([$.http.fetch(`http://127.0.0.1:${port}/api/mod/summary${query}`, { headers: { accept: 'application/json' } }), timeout])
     if (!res) return { kind: 'offline' }
-    // 404 JSON = um Habblaud de antes do mod (rota desconhecida); outro 404 qualquer = não é o Habblaud.
+    // 404 JSON = um beta-tester de antes do mod (rota desconhecida); outro 404 qualquer = não é o beta-tester.
     if (res.status === 404 && res.text.includes('rota desconhecida')) return { kind: 'outdated' }
     const summary = res.ok ? parseSummary(res.text) : undefined
     return summary ? { kind: 'ok', summary } : { kind: 'offline' }
@@ -319,7 +319,7 @@ function setStatus($: EngineInterface, text: string | undefined): void {
   $.ui.status(text)
 }
 
-/** (Re)agenda as perguntas: 5 s com o Habblaud no ar, 30 s fora do ar. */
+/** (Re)agenda as perguntas: 5 s com o beta-tester no ar, 30 s fora do ar. */
 function schedule($: EngineInterface, ms: number): void {
   if (timer && timerMs === ms) return
   timer?.cancel()
@@ -371,7 +371,7 @@ async function habblaudText($: EngineInterface): Promise<string> {
 export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
     try {
-      await $.command.register({ name: 'habblaud', description: 'Resumo do Habblaud: quantos agentes, quem trabalha e quem precisa de você' })
+      await $.command.register({ name: 'habblaud', description: 'Resumo do beta-tester: quantos agentes, quem trabalha e quem precisa de você' })
     } catch {
       // sem o comando, o resto segue
     }
@@ -379,7 +379,7 @@ export const register: Register = (on) => {
       const usage = await $.session.usage()
       await writeUsage($, usage.rateLimits)
     } catch {
-      // falha ao gravar = silêncio (o Habblaud continua com o último número que tinha)
+      // falha ao gravar = silêncio (o beta-tester continua com o último número que tinha)
     }
     try {
       schedule($, POLL_MS)

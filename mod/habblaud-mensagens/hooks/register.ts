@@ -174,7 +174,7 @@ export function reasonText(raw: unknown, fallback: string): string {
 let env: ModEnv | undefined
 let timer: { cancel: () => void } | undefined
 let timerMs = 0
-/** Uma rodada por vez: um Habblaud lento ou uma sessão ocupada não empilham rodadas. */
+/** Uma rodada por vez: um beta-tester lento ou uma sessão ocupada não empilham rodadas. */
 let polling = false
 
 /** O ambiente da sessão, lido uma vez por carga (cada nome escrito por extenso, como a análise exige). */
@@ -206,7 +206,7 @@ async function waitAtMost<T>($: EngineInterface, promise: Promise<T>, ms: number
   }
 }
 
-/** POST de um JSON ao Habblaud local com prazo de 2 s: a resposta, ou undefined (fora do ar, travado). Nunca lança. */
+/** POST de um JSON ao beta-tester local com prazo de 2 s: a resposta, ou undefined (fora do ar, travado). Nunca lança. */
 async function postJson($: EngineInterface, port: number, path: string, body: string): Promise<HttpResponse | undefined> {
   try {
     const request = $.http.fetch(`http://127.0.0.1:${port}${path}`, {

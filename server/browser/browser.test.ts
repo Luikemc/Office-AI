@@ -160,7 +160,7 @@ describe.skipIf(!CHROME)('navegador (Chrome sem janela, páginas locais)', () =>
     const r = await call('digitar', { tabId: tab, ref: nome, texto: 'Oi, tudo bem?', enviar: true });
     expect(Date.now() - t0).toBeLessThan(10_000);
     expect(r.isError).toBe(true);
-    expect(r.text).toMatch(/RECUSADO.*abrir o Habblaud/s);
+    expect(r.text).toMatch(/RECUSADO.*abrir o beta-tester/s);
     srv.setViewers(1);
     const again = await call('ler', { tabId: tab });
     expect(again.text).toMatch(/Título: Contato/);

@@ -20,7 +20,7 @@ export const VERSION = (() => {
 const PROTOCOL = '2025-06-18';
 
 const INSTRUCTIONS =
-  'Navegador local do escritório (Habblaud), com os logins do usuário. Sempre `ler` antes de agir; as refs (ex.: r3-e7) ' +
+  'Navegador local do escritório (beta-tester), com os logins do usuário. Sempre `ler` antes de agir; as refs (ex.: r3-e7) ' +
   'valem só para a última leitura da aba e toda ação devolve uma leitura nova. Enviar, submeter, pagar, confirmar, apagar ' +
   'ou publicar espera a aprovação do usuário no escritório: a chamada fica parada até ele responder. Nunca tente contornar ' +
   'a trava (outro botão, Enter, outro caminho); se for recusada, pare e pergunte. Captcha, códigos de verificação, QR code ' +
@@ -216,7 +216,7 @@ export async function callTool(name, args, { env = process.env, signal, session 
   } catch (err) {
     if (signal?.aborted) return text('Cancelado.', true);
     return text(
-      `O escritório (Habblaud) não respondeu em 127.0.0.1:${port(env)} (${err?.code ?? err?.message ?? err}). Peça ao usuário para abrir o Habblaud e tente de novo.`,
+      `O escritório (beta-tester) não respondeu em 127.0.0.1:${port(env)} (${err?.code ?? err?.message ?? err}). Peça ao usuário para abrir o beta-tester e tente de novo.`,
       true,
     );
   }
@@ -258,7 +258,7 @@ export function serve({ input = process.stdin, output = process.stdout, env = pr
         return reply(id, {
           protocolVersion: typeof params?.protocolVersion === 'string' ? params.protocolVersion : PROTOCOL,
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: 'navegador', title: 'Navegador do Habblaud', version: VERSION },
+          serverInfo: { name: 'navegador', title: 'Navegador do beta-tester', version: VERSION },
           instructions: INSTRUCTIONS,
         });
       case 'ping':

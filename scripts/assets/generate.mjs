@@ -126,7 +126,7 @@ async function requestImage(model, prompt, aspect) {
     headers: {
       Authorization: `Bearer ${apiKey()}`,
       'Content-Type': 'application/json',
-      'X-Title': 'Habblaud assets',
+      'X-Title': 'beta-tester assets',
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(TIMEOUT_MS),

@@ -194,7 +194,7 @@ describe.skipIf(!CHROME)('whatsapp (Chrome sem janela, página local que imita o
     try {
       const r = await call('whatsapp_enviar', { contato: 'Ana Paula', texto: 'ninguém vê' });
       expect(r.isError).toBe(true);
-      expect(r.text).toMatch(/RECUSADO.*abrir o Habblaud/s);
+      expect(r.text).toMatch(/RECUSADO.*abrir o beta-tester/s);
     } finally {
       srv.setViewers(1);
     }

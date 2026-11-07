@@ -52,7 +52,7 @@ function startMcp(env: NodeJS.ProcessEnv) {
 }
 
 describe('MCP navegador (stdio)', () => {
-  it('initialize, tools/list e tools/call repassado ao Habblaud com o sessionId', async () => {
+  it('initialize, tools/list e tools/call repassado ao beta-tester com o sessionId', async () => {
     const hab = await fakeHabblaud((path) =>
       path === '/api/browser/abrir'
         ? { status: 200, json: { ok: true, aba: { id: 't1' }, texto: 'Aba t1 · revisão 1\nTítulo: Teste' } }
@@ -98,7 +98,7 @@ describe('MCP navegador (stdio)', () => {
     }
   }, 30_000);
 
-  it('Habblaud fora do ar: erro claro, sem derrubar o MCP', async () => {
+  it('beta-tester fora do ar: erro claro, sem derrubar o MCP', async () => {
     const mcp = startMcp({ HABBLAUD_PORT: '1', HABBLAUD_NAVEGADOR_SESSION: 's' });
     try {
       mcp.send({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'abas', arguments: {} } });

@@ -127,7 +127,7 @@ export async function waitState(page: Page, ms = LOAD_WAIT_MS): Promise<WaState>
 /** Texto para o modelo sobre um estado que não é "conectado". */
 export function stateMessage(s: WaState, headless: boolean): string {
   const win = headless
-    ? tr('Atenção: o Chrome do escritório está sem janela (HABBLAUD_BROWSER_HEADLESS=1); o usuário precisa reabrir o Habblaud sem essa opção para ver a janela.')
+    ? tr('Atenção: o Chrome do escritório está sem janela (HABBLAUD_BROWSER_HEADLESS=1); o usuário precisa reabrir o beta-tester sem essa opção para ver a janela.')
     : tr('Ele está na janela do Chrome do escritório.');
   switch (s) {
     case 'conectado':

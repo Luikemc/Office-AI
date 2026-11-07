@@ -15,11 +15,11 @@ const TYPED_MAX = 4_000;
 export function skipMessage(skip: SkipReason, port: number): string {
   switch (skip) {
     case 'no-viewers':
-      return tr('ninguém está com o escritório aberto para aprovar: peça ao usuário para abrir o Habblaud (http://localhost:{0}) e tente de novo. Nada foi feito.', [port]);
+      return tr('ninguém está com o escritório aberto para aprovar: peça ao usuário para abrir o beta-tester (http://localhost:{0}) e tente de novo. Nada foi feito.', [port]);
     case 'unknown-session':
-      return tr('o escritório não conhece esta sessão: peça ao usuário para abrir o Habblaud (http://localhost:{0}) e conferir que a sessão aparece. Nada foi feito.', [port]);
+      return tr('o escritório não conhece esta sessão: peça ao usuário para abrir o beta-tester (http://localhost:{0}) e conferir que a sessão aparece. Nada foi feito.', [port]);
     default:
-      return tr('o escritório não aceitou o pedido de aprovação ({0}): peça ao usuário para abrir o Habblaud e tente de novo. Nada foi feito.', [skip]);
+      return tr('o escritório não aceitou o pedido de aprovação ({0}): peça ao usuário para abrir o beta-tester e tente de novo. Nada foi feito.', [skip]);
   }
 }
 
