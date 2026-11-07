@@ -26,6 +26,7 @@ export function skipMessage(skip: SkipReason, port: number): string {
 /** Texto curto do cartão ("Clicar em “Enviar” em loja.com"). */
 export function cardText(r: GateRequest): string {
   const site = hostOf(r.url) || r.url.slice(0, 60);
+  if (r.tool === 'whatsapp_enviar') return tr('Enviar no WhatsApp para {0}', [r.element ?? '?']);
   if (r.tool === 'baixar') return tr('Baixar {0} de {1}', [r.element ?? tr('um arquivo'), site]);
   if (r.tool === 'digitar') return tr('Digitar e enviar em {0}', [site]);
   return tr('Clicar em {0} em {1}', [r.element ?? tr('um elemento'), site]);
@@ -33,6 +34,10 @@ export function cardText(r: GateRequest): string {
 
 /** Detalhe do cartão: site, elemento (o que a página diz e o que o agente diz), motivo e o texto exato. */
 export function cardInput(r: GateRequest): string {
+  if (r.tool === 'whatsapp_enviar') {
+    const t = (r.text ?? '').length > TYPED_MAX ? `${(r.text ?? '').slice(0, TYPED_MAX)}…` : (r.text ?? '');
+    return [tr('Para: {0} (nome no cabeçalho da conversa aberta)', [r.element ?? '?']), tr('Mensagem que será enviada:'), t].join('\n');
+  }
   const lines = [tr('Site: {0}', [r.url.slice(0, 500)]), tr('Por que pede: {0}', [r.reason])];
   if (r.element) lines.push(tr('Elemento na página: {0}', [r.element]));
   if (r.description) lines.push(tr('Descrição do agente: {0}', [r.description]));
@@ -49,9 +54,9 @@ export function registryGate(registry: PermissionRegistry, port: number, timeout
     const res = registry.requestInternal({
       sessionId: r.sessionId,
       tool: `${TOOL_PREFIX}${r.tool}`,
-      title: `${TOOL_PREFIX}${r.tool}(${hostOf(r.url) || r.url.slice(0, 80)})`,
+      title: r.tool === 'whatsapp_enviar' ? `${TOOL_PREFIX}${r.tool}(${r.element ?? ''})` : `${TOOL_PREFIX}${r.tool}(${hostOf(r.url) || r.url.slice(0, 80)})`,
       text: cardText(r),
-      icon: r.tool === 'baixar' ? '⬇️' : r.tool === 'digitar' ? '⌨️' : '🖱️',
+      icon: r.tool === 'whatsapp_enviar' ? '💬' : r.tool === 'baixar' ? '⬇️' : r.tool === 'digitar' ? '⌨️' : '🖱️',
       input: cardInput(r),
       timeoutMs,
     });

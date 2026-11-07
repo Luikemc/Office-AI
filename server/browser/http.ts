@@ -7,9 +7,13 @@
 //   POST /api/browser/digitar   {sessionId, tabId, ref, texto, enviar?}   → {ok, aba, texto}
 //   POST /api/browser/abas      {sessionId}                               → {ok, abas}
 //   POST /api/browser/fechar    {sessionId, tabId}                        → {ok, fechada}
+//   POST /api/browser/whatsapp_status {sessionId}                         → {ok, estado, texto}
+//   POST /api/browser/whatsapp_enviar {sessionId, contato, texto}         → {ok, contato, confirmado, texto}
+//   POST /api/browser/whatsapp_ler    {sessionId, contato, quantas?}      → {ok, contato, mensagens, texto}
 //   GET  /api/browser/screenshot?sessionId=&tabId=                       → image/jpeg da aba (a mais nova sem tabId)
 //
-// Erros: {ok: false, code, error} (400 invalid, 404 not-found, 409 stale, 403 denied, 429 too-many, 503 disabled, 500).
+// Erros: {ok: false, code, error} (400 invalid, 404 not-found, 409 stale/not-ready/ambiguous, 403 denied, 429 too-many,
+// 503 disabled, 500).
 // Uma ação que espera a aprovação no escritório segura a requisição até a resposta (até APPROVAL_TIMEOUT_MS): o MCP
 // usa node:http sem tempo limite. Se a conexão cair antes, o pedido sai do escritório e a ação não roda.
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -18,9 +22,9 @@ import { tr } from '../../shared/i18n';
 import { errMsg, log } from '../log';
 import { BrowserError, type BrowserService } from './service';
 
-const STATUS: Record<BrowserError['code'], number> = { invalid: 400, 'not-found': 404, stale: 409, denied: 403, 'too-many': 429, disabled: 503, failed: 500 };
+const STATUS: Record<BrowserError['code'], number> = { invalid: 400, 'not-found': 404, stale: 409, denied: 403, 'too-many': 429, disabled: 503, failed: 500, 'not-ready': 409, ambiguous: 409 };
 
-const ACTIONS = new Set(['abrir', 'ler', 'clicar', 'digitar', 'abas', 'fechar']);
+const ACTIONS = new Set(['abrir', 'ler', 'clicar', 'digitar', 'abas', 'fechar', 'whatsapp_status', 'whatsapp_enviar', 'whatsapp_ler']);
 
 type Rec = Record<string, unknown>;
 
@@ -45,6 +49,12 @@ export function createBrowserRoutes(browser: BrowserService): (req: IncomingMess
         return { ok: true, ...(await browser.clicar(sid, body.tabId, body.ref, body.elemento, signal)) };
       case 'digitar':
         return { ok: true, ...(await browser.digitar(sid, body.tabId, body.ref, body.texto, body.enviar, body.elemento, signal)) };
+      case 'whatsapp_status':
+        return { ok: true, ...(await browser.whatsappStatus(sid)) };
+      case 'whatsapp_enviar':
+        return { ok: true, ...(await browser.whatsappEnviar(sid, body.contato, body.texto, signal)) };
+      case 'whatsapp_ler':
+        return { ok: true, ...(await browser.whatsappLer(sid, body.contato, body.quantas)) };
       case 'abas':
         return { ok: true, abas: await browser.abas(sid) };
       default:

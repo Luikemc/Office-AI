@@ -656,6 +656,16 @@ function describeMcp(name: string, input: Record<string, unknown>): ActivityDesc
         return make('browser', '🗂️', tr('Conferindo as abas do navegador'));
       case 'fechar':
         return make('browser', '🗂️', tr('Fechando uma aba'));
+      case 'whatsapp_status':
+        return make('browser', '💬', tr('WhatsApp: conferindo a conexão'));
+      case 'whatsapp_enviar': {
+        const who = str(input.contato);
+        return make('browser', '💬', who ? tr('WhatsApp: escrevendo para {0}', [truncate(who, 30)]) : tr('WhatsApp: escrevendo uma mensagem'));
+      }
+      case 'whatsapp_ler': {
+        const who = str(input.contato);
+        return make('browser', '💬', who ? tr('WhatsApp: lendo a conversa com {0}', [truncate(who, 30)]) : tr('WhatsApp: lendo uma conversa'));
+      }
     }
   }
   if (/playwright|chrome|browser|puppeteer|navegador/i.test(srv)) {

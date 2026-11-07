@@ -7,7 +7,7 @@ import { NameStore } from '../model/names';
 import { Office } from '../model/office';
 import { PermissionRegistry } from '../permissions/registry';
 import { appendLines, L, tempDir, writeLines } from '../test/fixtures';
-import { registryGate } from './approval';
+import { cardInput, cardText, registryGate } from './approval';
 import type { GateRequest } from './service';
 
 setQuiet(true);
@@ -134,5 +134,13 @@ describe('trava do navegador no registro', () => {
     registry.tick();
     expect(await p).toEqual({ ok: false, message: expect.stringMatching(/saiu do escritório/) });
     expect(registry.size).toBe(0);
+  });
+});
+
+describe('cartão do WhatsApp', () => {
+  it('para quem (nome do cabeçalho) e o texto exato, sem site nem elemento', () => {
+    const r: GateRequest = { sessionId: 's', tool: 'whatsapp_enviar', url: 'https://web.whatsapp.com/', reason: 'x', element: 'Ana', text: 'linha 1\nlinha 2' };
+    expect(cardText(r)).toBe('Enviar no WhatsApp para Ana');
+    expect(cardInput(r)).toBe('Para: Ana (nome no cabeçalho da conversa aberta)\nMensagem que será enviada:\nlinha 1\nlinha 2');
   });
 });

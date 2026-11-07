@@ -279,6 +279,9 @@ e repassa para `POST /api/browser/<ferramenta>` com `{sessionId, ...}`:
 | `digitar` | `{tabId, ref, texto, enviar?, elemento?}` | `{ok, aba, texto}` |
 | `abas` | `{}` | `{ok, abas: [{id, title, url, revision}]}` |
 | `fechar` | `{tabId}` | `{ok, fechada}` |
+| `whatsapp_status` | `{}` | `{ok, estado, texto}` (`conectado`, `qr`, `outra-janela`, `incompativel`, `carregando`) |
+| `whatsapp_enviar` | `{contato, texto}` | `{ok, contato, confirmado, texto}` |
+| `whatsapp_ler` | `{contato, quantas?}` (1–30, padrão 10) | `{ok, contato, mensagens: [{de, quando, texto}], texto}` |
 
 `texto` é a leitura da página: aba e revisão, título, URL, avisos (aba nova aberta pela página, `alert`/`confirm`
 fechados sem confirmar, downloads) e a árvore de acessibilidade (`page.ariaSnapshotJSON({mode: 'ai'})`, que atravessa
@@ -302,9 +305,35 @@ conexão que cai tira o pedido. Sem página aberta, sessão desconhecida, recusa
 esgotado ou erro → a ação não roda e a resposta é `403 {code: 'denied'}`. Pedidos internos não são soltos como
 órfãos (não há long-poll) nem pela busca no transcript.
 
+**WhatsApp Web** (`browser/whatsapp.ts`): as três ferramentas `whatsapp_*` usam **uma** aba do
+`https://web.whatsapp.com` no mesmo perfil (a que já estiver aberta, mesmo de uma sessão, ou uma nova que fica fora de
+`abas`), na fila dela. Só essa origem conta como WhatsApp (`BrowserOptions.whatsappOrigins` troca nos testes, que
+usam uma página local que imita a estrutura: `server/test/whatsapp-fixture.ts`; nunca o site de verdade). O fluxo:
+
+1. **estado** — `#side`/`#pane-side` = conectado; senão o texto/QR da página (pt/en/es) diz QR de login, "aberto em
+   outra janela" (o "Usar aqui" é com o usuário: nunca clica) ou navegador incompatível (não contorna nem troca o user
+   agent); espera até 25 s sair de "carregando". Não conectado → `409 not-ready` com o texto para o modelo pedir ao
+   usuário que escaneie o QR na janela do Chrome e chamar `whatsapp_status` de novo;
+2. **conversa** — digita o nome na busca (primeiro campo de texto de `#side`), lê os itens (`[role=listitem]`/
+   `[role=row]` mais externos, nome no primeiro `span[title]`, até a seção "Mensagens"), compara sem acento/maiúscula.
+   Um único item individual com o nome exato → abre; vários com o mesmo nome, nenhum exato (devolve os parecidos) ou
+   nenhum → `409 ambiguous`, nada digitado; grupo (`[data-icon*=group]`, "dados do grupo") → recusa;
+3. **cabeçalho** — `#main header` precisa mostrar o nome; senão recusa;
+4. **texto** — no compositor (`#main footer [contenteditable=true]`) com `keyboard.insertText`, Shift+Enter entre as
+   linhas (nunca Enter sozinho), conferido depois. Rascunho que já estava lá → recusa (não apaga o do usuário);
+5. **trava** — o mesmo `Gate` (registro de permissões): cartão `mcp__navegador__whatsapp_enviar(<nome>)` "Enviar no
+   WhatsApp para <nome do cabeçalho>" com "Para:" e a mensagem exata. Recusa, sem escritório aberto, tempo esgotado
+   ou conexão que cai → apaga o compositor e `403 denied`; depois do ok confere de novo cabeçalho e texto;
+6. **envio** — Enter no compositor e espera até 8 s a última `.message-out`/`[data-id^="true_"]` nova com o mesmo
+   texto: `confirmado: true`; se não aparecer, `confirmado: false` e o texto diz "NÃO CONFIRMADO, não envie de novo".
+
+Um `whatsapp_enviar` por vez e no mínimo 20 s entre envios do perfil (`429 too-many`). `whatsapp_ler` não passa pela
+trava (só lê; abrir a conversa a marca como lida) e avisa que o conteúdo é de terceiros. `clicar`/`digitar` no
+`*.whatsapp.com` continuam travados. Sem grupos, áudio, figurinha, arquivo ou envio em massa.
+
 Borda: só pela porta local (a remota recebe 403 mesmo com login), `Host` local, conexão pelo loopback e **sem
 `Origin`** nos `POST` (uma página aberta no próprio navegador manda `Origin`; o MCP, não). Erros:
-`{ok: false, code, error}` com 400 `invalid`, 403 `denied`, 404 `not-found`, 409 `stale`, 429 `too-many` (8 abas por
+`{ok: false, code, error}` com 400 `invalid`, 403 `denied`, 404 `not-found`, 409 `stale`/`not-ready`/`ambiguous`, 429 `too-many` (8 abas por
 sessão), 503 `disabled`, 500 `failed`.
 
 ## Mensagens pelo escritório

@@ -69,7 +69,7 @@ describe('MCP navegador (stdio)', () => {
 
       mcp.send({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
       const tools = ((await mcp.byId(2)).result as { tools: Array<{ name: string; description: string; inputSchema: Rec }> }).tools;
-      expect(tools.map((t) => t.name)).toEqual(['abrir', 'ler', 'clicar', 'digitar', 'abas', 'fechar']);
+      expect(tools.map((t) => t.name)).toEqual(['abrir', 'ler', 'clicar', 'digitar', 'abas', 'fechar', 'whatsapp_status', 'whatsapp_enviar', 'whatsapp_ler']);
       for (const t of tools) expect(t.inputSchema.type).toBe('object');
       expect(tools.find((t) => t.name === 'clicar')!.inputSchema.required).toEqual(['tabId', 'ref', 'elemento']);
 

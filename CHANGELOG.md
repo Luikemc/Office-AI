@@ -17,6 +17,12 @@ do meio (0.**3**.0).
   vê as próprias abas. Enviar, submeter, pagar, confirmar, apagar ou publicar, toda ação no WhatsApp e downloads
   esperam a sua aprovação no escritório: a sala levanta a mão e o cartão mostra o site, o elemento e o texto exato
   que vai ser digitado. Sem o escritório aberto, a ação é recusada. Instale com `npm run mod:install -- --com-navegador`.
+- **WhatsApp Web pelo escritório.** “Manda para a Ana: o relatório de março está pronto”: o agente abre o WhatsApp
+  Web no Chrome do escritório (você escaneia o QR uma vez), acha a conversa pelo nome, escreve a mensagem e a sala
+  levanta a mão mostrando **para quem** (o nome no cabeçalho da conversa) e **o quê** (o texto exato); só envia
+  depois do seu ok. Recusou ou não respondeu, a caixa de texto é apagada e nada sai. Nome repetido ou que não bate
+  exatamente volta para o agente perguntar a você; grupos ficam de fora. Uma mensagem por vez, com 20 s entre
+  envios. O agente também pode conferir se o WhatsApp está conectado e ler as últimas mensagens de uma conversa.
 
 ## [1.0.3] - 2026-10-16
 
