@@ -12,6 +12,20 @@ import { tr } from '../../shared/i18n';
 import { errMsg, log } from '../log';
 import { gateReason, lockedSite, type ElementFacts } from './gate';
 import { MAX_ELEMENTS, MAX_TEXT, parseRef, renderSnapshot, TYPABLE, type ElementInfo } from './snapshot';
+import {
+  readMessages,
+  sendMessage,
+  stateMessage,
+  waitState,
+  WA_NAME_MAX,
+  WA_READ_DEFAULT,
+  WA_READ_MAX,
+  WA_TEXT_MAX,
+  WHATSAPP_INTERVAL_MS,
+  WHATSAPP_ORIGIN,
+  WhatsappError,
+  type WaState,
+} from './whatsapp';
 
 /** Abas por sessão. */
 export const MAX_TABS_PER_SESSION = 8;
@@ -25,7 +39,7 @@ const QUIET_MS = 300;
 const TEXT_MAX = 4_000;
 const VIEWPORT = { width: 1280, height: 800 };
 
-export type BrowserErrorCode = 'invalid' | 'not-found' | 'stale' | 'denied' | 'failed' | 'disabled' | 'too-many';
+export type BrowserErrorCode = 'invalid' | 'not-found' | 'stale' | 'denied' | 'failed' | 'disabled' | 'too-many' | 'not-ready' | 'ambiguous';
 
 export class BrowserError extends Error {
   constructor(
@@ -39,8 +53,8 @@ export class BrowserError extends Error {
 /** O que a trava recebe para montar o cartão no escritório. */
 export interface GateRequest {
   sessionId: string;
-  /** Ferramenta: clicar, digitar, baixar. */
-  tool: 'clicar' | 'digitar' | 'baixar';
+  /** Ferramenta: clicar, digitar, baixar, whatsapp_enviar. */
+  tool: 'clicar' | 'digitar' | 'baixar' | 'whatsapp_enviar';
   url: string;
   /** Por que travou (gate.ts). */
   reason: string;
@@ -48,7 +62,7 @@ export interface GateRequest {
   description?: string;
   /** O que a página diz do elemento (papel e nome). */
   element?: string;
-  /** Texto exato a digitar. */
+  /** Texto exato a digitar (no WhatsApp: a mensagem exata). */
   text?: string;
   signal?: AbortSignal;
 }
@@ -76,6 +90,13 @@ export interface BrowserOptions {
   /** Executável do Chrome (HABBLAUD_BROWSER_PATH); sem ele, o canal `chrome` (o Chrome instalado). */
   executablePath?: string;
   gate: Gate;
+  /**
+   * Origens que contam como WhatsApp Web para as ferramentas whatsapp_* (a primeira é a que se abre). Produção: só
+   * https://web.whatsapp.com; os testes apontam para uma página local que imita a estrutura dele.
+   */
+  whatsappOrigins?: string[];
+  /** Intervalo mínimo entre dois envios no WhatsApp (padrão 20 s). */
+  whatsappIntervalMs?: number;
   /** Troca o lançamento (testes). */
   launch?: (profileDir: string, opts: { headless: boolean; executablePath?: string }) => Promise<BrowserContext>;
 }
@@ -91,6 +112,19 @@ interface Tab {
 }
 
 const SESSION_RE = /^[A-Za-z0-9._:-]{1,200}$/;
+/** Dono da aba do WhatsApp aberta pelas ferramentas whatsapp_* (nenhuma sessão casa com isto: fica fora de `abas`). */
+const WA_OWNER = '#whatsapp';
+
+export interface WhatsappStatus {
+  estado: WaState;
+  texto: string;
+}
+
+export interface WhatsappSent {
+  contato: string;
+  confirmado: boolean;
+  texto: string;
+}
 
 export function checkSession(sessionId: unknown): string {
   if (typeof sessionId !== 'string' || !SESSION_RE.test(sessionId)) throw new BrowserError('invalid', tr('sessionId inválido'));
@@ -207,6 +241,9 @@ export class BrowserService {
   private byPage = new WeakMap<Page, Tab>();
   private seq = 0;
   private stopped = false;
+  private waOpening: Promise<Tab> | undefined;
+  private waBusy = false;
+  private waLastSend = 0;
 
   constructor(private readonly opts: BrowserOptions) {}
 
@@ -298,6 +335,119 @@ export class BrowserService {
     const tab = tabId !== undefined ? this.tab(owner, tabId) : [...this.tabs.values()].filter((t) => t.owner === owner).at(-1);
     if (!tab) throw new BrowserError('not-found', tr('esta sessão não tem aba aberta'));
     return this.run(tab, () => tab.page.screenshot({ type: 'jpeg', quality: 60, timeout: ACTION_TIMEOUT_MS }));
+  }
+
+  // ------------------------------------------------------------------ WhatsApp (whatsapp.ts)
+
+  /** Conectado? QR na tela? Outra janela? Navegador incompatível? */
+  async whatsappStatus(sessionId: string): Promise<WhatsappStatus> {
+    checkSession(sessionId);
+    return this.withWhatsapp(async (page) => {
+      const estado = await waitState(page);
+      return { estado, texto: stateMessage(estado, !!this.opts.headless) };
+    });
+  }
+
+  /** Lê as últimas mensagens de uma conversa individual (sem trava: só leitura). */
+  async whatsappLer(sessionId: string, contato: unknown, quantas: unknown): Promise<{ contato: string; texto: string; mensagens: unknown[] }> {
+    checkSession(sessionId);
+    const name = waName(contato);
+    const n = quantas === undefined ? WA_READ_DEFAULT : Number(quantas);
+    if (!Number.isInteger(n) || n < 1 || n > WA_READ_MAX) throw new BrowserError('invalid', tr('quantas: de 1 a {0}', [WA_READ_MAX]));
+    return this.withWhatsapp((page) => readMessages(page, name, n, !!this.opts.headless));
+  }
+
+  /**
+   * Manda `texto` para a conversa individual `contato`: acha a conversa, confere o cabeçalho, escreve, pede o ok no
+   * escritório (cartão com o nome do cabeçalho e o texto exato) e só então aperta Enter. Um envio por vez e um
+   * intervalo mínimo entre envios.
+   */
+  async whatsappEnviar(sessionId: string, contato: unknown, texto: unknown, signal?: AbortSignal): Promise<WhatsappSent> {
+    const owner = checkSession(sessionId);
+    const name = waName(contato);
+    if (typeof texto !== 'string' || !texto.trim() || texto.length > WA_TEXT_MAX) throw new BrowserError('invalid', tr('texto inválido (1 a {0} caracteres)', [WA_TEXT_MAX]));
+    if (this.waBusy) throw new BrowserError('too-many', tr('já há um envio no WhatsApp em andamento: espere ele terminar (um por vez).'));
+    const interval = this.opts.whatsappIntervalMs ?? WHATSAPP_INTERVAL_MS;
+    const wait = this.waLastSend + interval - Date.now();
+    if (wait > 0) throw new BrowserError('too-many', tr('espere {0} s antes do próximo envio no WhatsApp (mínimo de {1} s entre mensagens).', [Math.ceil(wait / 1000), Math.round(interval / 1000)]));
+    this.waBusy = true;
+    try {
+      return await this.withWhatsapp((page) =>
+        sendMessage(page, name, texto, {
+          headless: !!this.opts.headless,
+          onSend: () => {
+            this.waLastSend = Date.now();
+          },
+          ask: async (shown, text) => {
+            try {
+              return await this.opts.gate({ sessionId: owner, tool: 'whatsapp_enviar', url: page.url(), reason: tr('enviar uma mensagem no WhatsApp'), element: shown, text, signal });
+            } catch (err) {
+              return { ok: false, message: tr('a trava falhou ({0}); nada foi feito', [errMsg(err)]) };
+            }
+          },
+        }),
+      );
+    } finally {
+      this.waBusy = false;
+    }
+  }
+
+  /** É uma página do WhatsApp Web (pelas origens configuradas)? */
+  isWhatsapp(url: string): boolean {
+    let origin: string;
+    try {
+      origin = new URL(url).origin;
+    } catch {
+      return false;
+    }
+    return this.waOrigins().includes(origin);
+  }
+
+  private waOrigins(): string[] {
+    const list = (this.opts.whatsappOrigins ?? [WHATSAPP_ORIGIN]).map((o) => new URL(o).origin);
+    return list.length ? list : [WHATSAPP_ORIGIN];
+  }
+
+  /** Roda `fn` na fila da aba do WhatsApp (a que já está aberta no perfil, ou uma nova). */
+  private async withWhatsapp<T>(fn: (page: Page) => Promise<T>): Promise<T> {
+    const tab = await this.whatsappTab();
+    return this.run(tab, async () => {
+      if (tab.page.isClosed()) throw new BrowserError('not-found', tr('a aba do WhatsApp fechou: chame de novo'));
+      await tab.page.bringToFront().catch(() => {});
+      try {
+        return await fn(tab.page);
+      } catch (err) {
+        if (err instanceof WhatsappError) throw new BrowserError(err.code, err.message);
+        throw this.actionError(err, tr('o WhatsApp Web não respondeu como esperado'));
+      } finally {
+        // Se a aba é de uma sessão, as refs da última leitura dela não valem mais.
+        tab.elements = new Map();
+      }
+    });
+  }
+
+  private whatsappTab(): Promise<Tab> {
+    for (const t of this.tabs.values()) if (!t.page.isClosed() && this.isWhatsapp(t.page.url())) return Promise.resolve(t);
+    if (!this.waOpening) {
+      const p = (async () => {
+        const ctx = await this.context();
+        const loose = ctx.pages().find((pg) => !pg.isClosed() && !this.byPage.has(pg) && this.isWhatsapp(pg.url()));
+        if (loose) return this.adopt(loose, WA_OWNER);
+        const page = await ctx.newPage();
+        const tab = this.adopt(page, WA_OWNER);
+        try {
+          await page.goto(`${this.waOrigins()[0]}/`, { waitUntil: 'domcontentloaded', timeout: GOTO_TIMEOUT_MS });
+        } catch (err) {
+          if (page.isClosed()) throw new BrowserError('failed', tr('não deu para abrir o WhatsApp Web: {0}', [errMsg(err).split('\n')[0].slice(0, 200)]));
+        }
+        return tab;
+      })();
+      this.waOpening = p;
+      void p.finally(() => {
+        if (this.waOpening === p) this.waOpening = undefined;
+      }).catch(() => {});
+    }
+    return this.waOpening;
   }
 
   /** Abas abertas (todas as sessões). */
@@ -480,6 +630,11 @@ export class BrowserService {
       tab.notices.push(tr('download de {0} falhou: {1}', [name, errMsg(err)]));
     }
   }
+}
+
+function waName(v: unknown): string {
+  if (typeof v !== 'string' || !v.trim() || v.trim().length > WA_NAME_MAX) throw new BrowserError('invalid', tr('contato inválido: o nome da conversa como aparece no WhatsApp (até {0} caracteres)', [WA_NAME_MAX]));
+  return v.trim();
 }
 
 function str(v: unknown): string | undefined {

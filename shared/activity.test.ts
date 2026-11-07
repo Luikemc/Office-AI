@@ -242,5 +242,9 @@ describe('navegador do escritório (plugin navegador)', () => {
     expect(describeTool('mcp__navegador__digitar', { texto: 'oi', enviar: true }).text).toBe('Digitando e enviando');
     expect(describeTool('mcp__navegador__digitar', { texto: 'oi' }).text).toBe('Digitando na página');
     expect(describeTool('mcp__navegador__abas', {}).kind).toBe('browser');
+    expect(describeTool('mcp__plugin_navegador_navegador__whatsapp_enviar', { contato: 'Ana', texto: 'oi' })).toMatchObject({ kind: 'browser', text: 'WhatsApp: escrevendo para Ana' });
+    expect(describeTool('mcp__navegador__whatsapp_ler', { contato: 'Ana' }).text).toBe('WhatsApp: lendo a conversa com Ana');
+    expect(describeTool('mcp__navegador__whatsapp_status', {}).text).toBe('WhatsApp: conferindo a conexão');
+    expect(JSON.stringify(describeTool('mcp__navegador__whatsapp_enviar', { contato: 'Ana', texto: 'segredo do relatório' }))).not.toContain('segredo');
   });
 });

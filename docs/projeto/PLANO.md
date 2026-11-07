@@ -24,7 +24,7 @@ serve só de referência de arquitetura: nenhuma linha de código dele entra aqu
    original ocupa a 4747.
 2. Navegador local (abrir, ler, clicar, digitar).
 3. Confirmação antes de agir.
-4. WhatsApp Web.
+4. WhatsApp Web — `whatsapp_status`, `whatsapp_enviar` (com trava), `whatsapp_ler` (`server/browser/whatsapp.ts`).
 5. Documentos (em paralelo com 2–3).
 
 ## Notas
