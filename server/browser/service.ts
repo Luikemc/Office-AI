@@ -184,6 +184,10 @@ export function normalizeUrl(raw: unknown): string {
   return u.href;
 }
 
+/** Auxiliar `__name` do esbuild/tsx (keepNames) para as funções avaliadas na página. */
+const NAME_SHIM =
+  "try{if(typeof globalThis.__name!=='function')Object.defineProperty(globalThis,'__name',{value:function(f){return f},writable:false,configurable:false})}catch(e){}";
+
 async function defaultLaunch(profileDir: string, opts: { headless: boolean; executablePath?: string }): Promise<BrowserContext> {
   let pw: typeof import('playwright-core');
   try {
@@ -954,6 +958,11 @@ export class BrowserService {
       throw new BrowserError('failed', tr('não deu para abrir o Chrome: {0}', [msg]));
     }
     log.info(tr('Navegador: Chrome aberto (perfil em {0}).', [this.opts.profileDir]));
+    // O tsx (npm run dev) compila com keepNames: as funções que mandamos rodar na página chamam `__name(...)`, que
+    // não existe lá ("ReferenceError: __name is not defined" em clicar/digitar). Define em toda página, antes do
+    // script dela, sem poder ser trocado pela página. Na build de produção não faz diferença.
+    await ctx.addInitScript({ content: NAME_SHIM }).catch(() => {});
+    await Promise.all(ctx.pages().map((p) => p.evaluate(NAME_SHIM).catch(() => {})));
     ctx.on('close', () => {
       // Janela fechada à mão ou Chrome caiu: as abas somem e o próximo uso abre de novo.
       this.ctx = undefined;
