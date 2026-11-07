@@ -14,7 +14,8 @@ serve só de referência de arquitetura: nenhuma linha de código dele entra aqu
   Identifica a sessão por `~/.claude/sessions/<ppid>.json`.
 - **Trava no servidor, não no modelo.** Ações que enviam/submetem/pagam pedem aprovação pelo registro de
   permissões já existente (`server/permissions`): a sala levanta a mão. Sem escritório aberto, a ação é recusada.
-  No `web.whatsapp.com` toda ação que altera a página é travada.
+  No `web.whatsapp.com` toda ação que altera a página é travada. Quanto pedir é escolha do usuário (modo e sites confiáveis), mas
+  dinheiro e WhatsApp pedem sempre e, quando a trava pede, falha = a ação não roda.
 - **Documentos** (`mod/documentos`): MCP local que extrai texto/valores com referência (página, célula) e faz as
   contas em código. A correção vai sempre para `nome-corrigido.ext`; o original nunca é sobrescrito.
 
@@ -32,6 +33,12 @@ serve só de referência de arquitetura: nenhuma linha de código dele entra aqu
    aprovação). Sistema de mentira para testar: `npm run sistema:exemplo` (porta 4800, `admin`/`exemplo123`).
    Porta padrão do beta-tester agora é 4748 (`server/config.ts`, `vite.config.ts`, MCP `navegador`); os hooks
    `habblaud*` seguem na 4747 (compartilhados com o Habblaud original).
+7. Trava com menos pedidos (7 nov 2026, depois do teste real login → tabela → "Novo cliente" → anexo → Salvar, que
+   pedia aprovação demais): modos `cauteloso` / `equilibrado` (padrão) / `livre` e sites confiáveis em
+   `<dataDir>/navegador.json`. Equilibrado pede só dinheiro, destrutivo, mensagem/publicar e upload; pagamento e
+   WhatsApp pedem sempre; site confiável = livre. Cartão com "Permitir e confiar neste site"; Configurações ›
+   Navegador escolhe o modo e tira sites (`GET/PUT /api/browser/config`). Classificador por tabela em
+   `server/browser/gate.ts` (`classify` + `needsApproval`).
 
 ## Notas
 

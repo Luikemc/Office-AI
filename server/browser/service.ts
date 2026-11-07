@@ -2,8 +2,9 @@
 // perfil em <dataDir>/navegador-perfil, para os logins ficarem). Cada sessão do Claude Code (pelo MCP do plugin
 // mod/navegador) abre as próprias abas e só vê e mexe nelas. Ferramentas: abrir, navegar, ler (com `parte` para
 // páginas longas), rolar, clicar, digitar, tecla, selecionar, passar_mouse, esperar, ver_tela, enviar_arquivo,
-// pedir_ajuda, abas, fechar; nenhuma roda código arbitrário na página. Ações arriscadas (gate.ts) esperam o seu ok no
-// escritório pela trava `Gate` (o registro de permissões); sem resposta, nada acontece. Senha o modelo nunca digita:
+// pedir_ajuda, abas, fechar; nenhuma roda código arbitrário na página. Ações arriscadas (gate.ts, conforme o modo e os
+// sites confiáveis de config.ts) esperam o seu ok no escritório pela trava `Gate` (o registro de permissões); sem
+// resposta, nada acontece. Senha o modelo nunca digita:
 // login, captcha, código e QR são com o usuário (`pedir_ajuda`, o mesmo cartão da trava).
 //
 // O Chrome só abre no primeiro uso. HABBLAUD_BROWSER_HEADLESS=1 abre sem janela (testes); HABBLAUD_BROWSER=0 desliga.
@@ -12,7 +13,8 @@ import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { BrowserContext, Download, FileChooser, Locator, Page } from 'playwright-core';
 import { tr } from '../../shared/i18n';
 import { errMsg, log } from '../log';
-import { gateReason, hostOf, lockedSite, normalize, type ElementFacts } from './gate';
+import { BrowserConfigStore, siteKey } from './config';
+import { ALWAYS_ASK, hostOf, judge, lockedSite, normalize, type BrowserAction, type ElementFacts, type GateCategory, type GateVerdict } from './gate';
 import { MAX_ELEMENTS, MAX_TEXT, parseRef, renderSnapshot, TYPABLE, type ElementInfo } from './snapshot';
 import {
   readMessages,
@@ -87,10 +89,18 @@ export interface GateRequest {
   /** Quanto o pedido espera (padrão: o da trava, 5 min). */
   timeoutMs?: number;
   signal?: AbortSignal;
+  /**
+   * Site (host:porta) que o cartão oferece para "Permitir e confiar neste site". O serviço só põe quando a categoria
+   * não pede sempre (dinheiro e WhatsApp nunca).
+   */
+  trustSite?: string;
 }
 
-/** `skip`: o pedido nem chegou ao escritório (ex.: 'no-viewers': ninguém com a página aberta). */
-export type GateDecision = { ok: true } | { ok: false; message: string; skip?: string };
+/**
+ * `skip`: o pedido nem chegou ao escritório (ex.: 'no-viewers': ninguém com a página aberta). `trustSite`: o usuário
+ * escolheu "Permitir e confiar neste site" (o serviço guarda o site em navegador.json).
+ */
+export type GateDecision = { ok: true; trustSite?: boolean } | { ok: false; message: string; skip?: string };
 export type Gate = (r: GateRequest) => Promise<GateDecision>;
 
 export interface TabView {
@@ -123,6 +133,8 @@ export interface BrowserOptions {
   /** Executável do Chrome (HABBLAUD_BROWSER_PATH); sem ele, o canal `chrome` (o Chrome instalado). */
   executablePath?: string;
   gate: Gate;
+  /** Modo da trava e sites confiáveis (<dataDir>/navegador.json). Sem ele: equilibrado, só em memória. */
+  config?: BrowserConfigStore;
   /**
    * Origens que contam como WhatsApp Web para as ferramentas whatsapp_* (a primeira é a que se abre). Produção: só
    * https://web.whatsapp.com; os testes apontam para uma página local que imita a estrutura dele.
@@ -348,7 +360,12 @@ export class BrowserService {
   private waBusy = false;
   private waLastSend = 0;
 
-  constructor(private readonly opts: BrowserOptions) {}
+  /** Modo da trava e sites confiáveis (GET/PUT /api/browser/config e o cartão "confiar neste site"). */
+  readonly config: BrowserConfigStore;
+
+  constructor(private readonly opts: BrowserOptions) {
+    this.config = opts.config ?? new BrowserConfigStore(null);
+  }
 
   // ------------------------------------------------------------------ ferramentas
 
@@ -467,8 +484,8 @@ export class BrowserService {
       const loc = tab.page.getByRef(el.raw);
       const facts = await this.facts(loc, el);
       const url = tab.page.url();
-      const reason = gateReason({ kind: 'clicar', url, element: facts });
-      if (reason) await this.ask({ sessionId: tab.owner, tool: 'clicar', url, reason, description: str(description), element: describeEl(el), signal });
+      const v = this.verdict({ kind: 'clicar', url, element: facts });
+      if (v.reason) await this.ask(tab, v, { sessionId: tab.owner, tool: 'clicar', url, reason: v.reason, description: str(description), element: describeEl(el), signal });
       try {
         await loc.click({ timeout: ACTION_TIMEOUT_MS });
       } catch (err) {
@@ -490,8 +507,8 @@ export class BrowserService {
       const facts = await this.facts(loc, el);
       if (facts.password) throw new BrowserError('invalid', passwordRefusal());
       const url = tab.page.url();
-      const reason = gateReason({ kind: 'digitar', url, element: facts, enviar: submit });
-      if (reason) await this.ask({ sessionId: tab.owner, tool: 'digitar', url, reason, description: str(description), element: describeEl(el), text, signal });
+      const v = this.verdict({ kind: 'digitar', url, element: facts, enviar: submit });
+      if (v.reason) await this.ask(tab, v, { sessionId: tab.owner, tool: 'digitar', url, reason: v.reason, description: str(description), element: describeEl(el), text, signal });
       try {
         await loc.fill(text, { timeout: ACTION_TIMEOUT_MS });
         if (submit) await loc.press('Enter', { timeout: ACTION_TIMEOUT_MS });
@@ -505,8 +522,8 @@ export class BrowserService {
 
   /**
    * Aperta uma tecla (nome do Playwright: Enter, Tab, Escape, ArrowDown, PageDown, Control+a...), no elemento `ref`
-   * ou onde estiver o foco. Enter num campo de formulário ou Enter/Espaço num botão que envia espera a aprovação, como
-   * `digitar` com `enviar`; no WhatsApp toda tecla espera.
+   * ou onde estiver o foco. Enter num campo ou Enter/Espaço num botão passam pela trava como `digitar` com `enviar` e
+   * `clicar` (gate.ts, conforme o modo); no WhatsApp toda tecla espera.
    */
   async tecla(sessionId: string, tabId: unknown, key: unknown, ref: unknown, description: unknown, signal?: AbortSignal): Promise<ActionResult> {
     const tab = this.tab(sessionId, tabId);
@@ -518,10 +535,10 @@ export class BrowserService {
       const last = key.split('+').at(-1) ?? key;
       if (facts?.password && last.length === 1) throw new BrowserError('invalid', passwordRefusal());
       const url = tab.page.url();
-      const reason = gateReason({ kind: 'tecla', url, key, element: facts });
-      if (reason) {
+      const v = this.verdict({ kind: 'tecla', url, key, element: facts });
+      if (v.reason) {
         const shown = el ? describeEl(el) : facts ? describeFacts(facts) : tr('elemento com o foco');
-        await this.ask({ sessionId: tab.owner, tool: 'tecla', url, reason, description: str(description), element: shown, text: key, signal });
+        await this.ask(tab, v, { sessionId: tab.owner, tool: 'tecla', url, reason: v.reason, description: str(description), element: shown, text: key, signal });
       }
       try {
         if (loc) await loc.press(key, { timeout: ACTION_TIMEOUT_MS });
@@ -575,8 +592,8 @@ export class BrowserService {
         throw new BrowserError('invalid', tr('opção não encontrada: {0}. Opções: {1}', [missing.map((m) => `“${m}”`).join(', '), list || '—']));
       }
       const url = tab.page.url();
-      const reason = gateReason({ kind: 'selecionar', url });
-      if (reason) await this.ask({ sessionId: tab.owner, tool: 'selecionar', url, reason, description: str(description), element: describeEl(el), text: wanted.join(', '), signal });
+      const v = this.verdict({ kind: 'selecionar', url });
+      if (v.reason) await this.ask(tab, v, { sessionId: tab.owner, tool: 'selecionar', url, reason: v.reason, description: str(description), element: describeEl(el), text: wanted.join(', '), signal });
       try {
         await loc.selectOption(
           chosen.map((value) => ({ value })),
@@ -735,7 +752,7 @@ export class BrowserService {
 
   /**
    * Envia arquivos da pasta do projeto da sessão por um campo de arquivo (`input type=file`) ou pelo botão que abre a
-   * escolha de arquivo. Sempre espera a aprovação (o cartão lista os arquivos e o site).
+   * escolha de arquivo. Espera a aprovação (o cartão lista os arquivos e o site), menos em site confiável.
    */
   async enviarArquivo(sessionId: string, tabId: unknown, ref: unknown, caminhos: unknown, description: unknown, signal?: AbortSignal): Promise<ActionResult> {
     const tab = this.tab(sessionId, tabId);
@@ -747,17 +764,19 @@ export class BrowserService {
       const loc = tab.page.getByRef(el.raw);
       const facts = await this.facts(loc, el);
       const url = tab.page.url();
-      const reason = gateReason({ kind: 'arquivo', url }) ?? tr('enviar arquivos do seu computador para o site');
-      await this.ask({
-        sessionId: tab.owner,
-        tool: 'enviar_arquivo',
-        url,
-        reason,
-        description: str(description),
-        element: describeEl(el),
-        files: files.map((f) => `${f.rel} (${humanSize(f.size)})`),
-        signal,
-      });
+      const v = this.verdict({ kind: 'arquivo', url });
+      if (v.reason) {
+        await this.ask(tab, v, {
+          sessionId: tab.owner,
+          tool: 'enviar_arquivo',
+          url,
+          reason: v.reason,
+          description: str(description),
+          element: describeEl(el),
+          files: files.map((f) => `${f.rel} (${humanSize(f.size)})`),
+          signal,
+        });
+      }
       // Confere de novo depois da espera (o arquivo pode ter mudado de lugar).
       const paths = checkUploads(root, files.map((f) => f.rel)).map((f) => f.real);
       try {
@@ -1031,7 +1050,18 @@ export class BrowserService {
     return timeoutLike(err) ? new BrowserError('stale', tr('{0} ({1}): faça `ler` de novo', [what, first])) : new BrowserError('failed', `${what}: ${first}`);
   }
 
-  private async ask(r: GateRequest): Promise<void> {
+  /** O que a trava diz desta ação, com o modo atual e o site (confiável ou não) da aba. */
+  private verdict(a: BrowserAction): GateVerdict {
+    return judge(a, this.config.policy(a.url));
+  }
+
+  /**
+   * Pede a aprovação no escritório; recusa, sem resposta ou erro = BrowserError('denied') e a ação não roda. O cartão
+   * oferece "Permitir e confiar neste site" quando a categoria não pede sempre; escolhido, o site vira confiável.
+   */
+  private async ask(tab: Tab, v: GateVerdict, r: GateRequest): Promise<void> {
+    const site = offerTrust(v.category, r.url);
+    if (site) r.trustSite = site;
     let d: GateDecision;
     try {
       d = await this.opts.gate(r);
@@ -1039,6 +1069,7 @@ export class BrowserService {
       d = { ok: false, message: tr('a trava falhou ({0}); nada foi feito', [errMsg(err)]) };
     }
     if (!d.ok) throw new BrowserError('denied', d.message);
+    if (d.trustSite && site && this.config.trust(site)) tab.notices.push(tr('o usuário marcou {0} como site confiável: ali só pagamentos pedem aprovação', [site]));
   }
 
   /** Nova leitura da aba: revisão nova, refs novas, texto pronto. `part`: só aquele pedaço da página inteira. */
@@ -1086,13 +1117,25 @@ export class BrowserService {
       await d.cancel().catch(() => {});
       return;
     }
-    const decision = await this.opts
-      .gate({ sessionId: tab.owner, tool: 'baixar', url: d.url(), reason: tr('baixar um arquivo'), element: name })
-      .catch((err): GateDecision => ({ ok: false, message: errMsg(err) }));
-    if (!decision.ok) {
-      await d.cancel().catch(() => {});
-      tab.notices.push(tr('download de {0} cancelado: {1}', [name, decision.message]));
-      return;
+    // A política é a do site da aba (o arquivo pode vir de outro endereço, um CDN).
+    let pageUrl = '';
+    try {
+      pageUrl = tab.page.url();
+    } catch {
+      pageUrl = '';
+    }
+    const v = judge({ kind: 'download', url: pageUrl }, this.config.policy(pageUrl));
+    if (v.reason) {
+      const site = offerTrust(v.category, pageUrl);
+      const decision = await this.opts
+        .gate({ sessionId: tab.owner, tool: 'baixar', url: d.url(), reason: v.reason, element: name, ...(site ? { trustSite: site } : {}) })
+        .catch((err): GateDecision => ({ ok: false, message: errMsg(err) }));
+      if (!decision.ok) {
+        await d.cancel().catch(() => {});
+        tab.notices.push(tr('download de {0} cancelado: {1}', [name, decision.message]));
+        return;
+      }
+      if (decision.trustSite && site && this.config.trust(site)) tab.notices.push(tr('o usuário marcou {0} como site confiável: ali só pagamentos pedem aprovação', [site]));
     }
     try {
       mkdirSync(this.opts.downloadsDir, { recursive: true });
@@ -1103,6 +1146,12 @@ export class BrowserService {
       tab.notices.push(tr('download de {0} falhou: {1}', [name, errMsg(err)]));
     }
   }
+}
+
+/** Site (host:porta) a oferecer no "Permitir e confiar neste site", ou undefined (dinheiro, WhatsApp, URL estranha). */
+function offerTrust(category: GateCategory | undefined, url: string): string | undefined {
+  if (!category || ALWAYS_ASK.has(category) || lockedSite(url)) return undefined;
+  return siteKey(url);
 }
 
 function waName(v: unknown): string {

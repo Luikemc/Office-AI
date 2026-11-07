@@ -204,6 +204,8 @@ export class PermissionCard {
   private note: HTMLElement;
   private queue: HTMLElement;
   private approveBtn: HTMLButtonElement;
+  /** Pedido do navegador: "Permitir e confiar neste site" (aprova e põe o site entre os confiáveis). */
+  private trustBtn: HTMLButtonElement;
   private denyBtn: HTMLButtonElement;
   private terminalBtn: HTMLButtonElement;
   private always: HTMLElement;
@@ -235,6 +237,7 @@ export class PermissionCard {
     this.remote = h('p', { class: 'ui-perm__note', hidden: true, text: tr('Para responder por aqui, abra o beta-tester por http://localhost (ou 127.0.0.1). Por enquanto, responda no terminal.') });
 
     this.approveBtn = h('button', { class: 'ui-btn ui-perm__btn ui-perm__btn--allow', type: 'button', on: { click: () => this.send({ behavior: 'allow' }) } }, tr('✓ Aprovar'));
+    this.trustBtn = h('button', { class: 'ui-btn ui-perm__btn ui-perm__btn--allow', type: 'button', hidden: true, on: { click: () => this.send({ behavior: 'allow', trustSite: true }) } });
     this.answerBtn = h('button', { class: 'ui-btn ui-perm__btn ui-perm__btn--allow', type: 'button', hidden: true, on: { click: () => this.sendAnswer() } }, tr('✓ Responder'));
     this.askForm = h('form', { class: 'ui-perm-ask', hidden: true, attrs: { 'aria-label': tr('Perguntas do agente') } });
     this.askForm.addEventListener('submit', (e) => {
@@ -299,7 +302,7 @@ export class PermissionCard {
       this.note,
       this.queue,
       this.remote,
-      h('div', { class: 'ui-perm__actions' }, this.approveBtn, this.answerBtn, this.denyBtn, this.terminalBtn),
+      h('div', { class: 'ui-perm__actions' }, this.approveBtn, this.trustBtn, this.answerBtn, this.denyBtn, this.terminalBtn),
       this.always,
       this.denyForm,
       this.status,
@@ -376,7 +379,13 @@ export class PermissionCard {
     const busy = this.isBusy();
     setHidden(this.approveBtn, ask);
     setHidden(this.answerBtn, !ask);
-    for (const b of [this.approveBtn, this.denyBtn, this.terminalBtn]) b.disabled = busy;
+    const site = !ask && p.trustSite ? p.trustSite : '';
+    setHidden(this.trustBtn, !site);
+    if (site) {
+      setText(this.trustBtn, tr('✓ Permitir e confiar neste site'));
+      setTitle(this.trustBtn, tr('Aprova agora e marca {0} como site confiável: ali o navegador age sem pedir, menos pagamentos (Configurações › Navegador desfaz)', [site]));
+    }
+    for (const b of [this.approveBtn, this.trustBtn, this.denyBtn, this.terminalBtn]) b.disabled = busy;
     for (const el of this.askForm.querySelectorAll('input')) el.disabled = busy;
     if (ask) this.syncAnswer();
     setTitle(this.denyBtn, ask ? tr('Não responder: o agente segue sem a resposta (com o motivo, se você escrever um)') : codex ? tr('Recusar com um motivo (o Codex pede um)') : '');

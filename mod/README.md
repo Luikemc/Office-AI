@@ -171,7 +171,7 @@ mods importam `claude-code/testing` e só rodam pelo `claude plugin test`: o `np
 Code, `mcp__plugin_navegador_navegador__*`). Ele não abre navegador nenhum: acha a sessão em
 `<conta>/sessions/<pid do claude>.json` e repassa cada chamada para
 `http://127.0.0.1:<HABBLAUD_PORT ou 4748>/api/browser/<ferramenta>` (4748: a porta padrão do beta-tester; os hooks dos
-plugins `habblaud*`, compartilhados com o Habblaud original, continuam na 4747). O Chrome, as abas e a trava (enviar, pagar,
-confirmar, apagar, WhatsApp e downloads esperam a sua aprovação no escritório) ficam no servidor do Habblaud: veja
+plugins `habblaud*`, compartilhados com o Habblaud original, continuam na 4747). O Chrome, as abas e a trava (pagar, excluir,
+mandar mensagem/publicar, enviar arquivos e o WhatsApp esperam a sua aprovação no escritório, conforme o modo) ficam no servidor do Habblaud: veja
 "Navegador do escritório" em `server/README.md`. Habblaud fora do ar: a ferramenta responde com erro e pede para
 abrir o escritório.

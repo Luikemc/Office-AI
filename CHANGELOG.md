@@ -26,6 +26,14 @@ do meio (0.**3**.0).
   Permitir; o login fica salvo no perfil. O agente não digita senha (o campo é recusado). Enter num campo de
   formulário e todo envio de arquivo (só da pasta do projeto, com os nomes no cartão) esperam a sua aprovação.
   `npm run sistema:exemplo` sobe um sistema de mentira local para testar.
+- **Navegador pede menos aprovações: modos Cauteloso, Equilibrado e Livre.** No modo Equilibrado (o novo padrão) o
+  agente preenche, salva, cadastra, confirma, entra e baixa arquivos sozinho; a sala só levanta a mão para pagar ou
+  comprar, excluir ou cancelar, mandar mensagem ou publicar e enviar arquivos. Cauteloso é o jeito de antes (pede para
+  qualquer envio de formulário e download); Livre pede só para pagamentos. Pagamentos e o WhatsApp pedem sempre, em
+  qualquer modo. O cartão de aprovação ganhou **“Permitir e confiar neste site”**: aprova e marca o site como
+  confiável, onde o navegador age como no Livre (não aparece em pagamentos nem no WhatsApp). Escolha o modo e tire
+  sites da lista em Configurações › Navegador; vale na hora, sem reiniciar (fica em `navegador.json` na pasta de
+  dados).
 - **Documentos: o agente lê e confere PDF, planilha e Word da pasta do projeto.** Plugin novo `documentos` (um
   servidor MCP local, Node puro, sem chave de API): `ler_documento` devolve o texto de cada página do PDF, as células
   da planilha (`Plan1!B7`, com fórmula e valor guardado), as linhas do CSV e os parágrafos e tabelas do Word, com os

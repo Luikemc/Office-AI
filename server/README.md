@@ -320,17 +320,37 @@ que o usuário faça na janela do Chrome (sem mandar senha no chat) e depois cha
 existe ou acima de 100 MB → recusado antes do cartão. Usa `setInputFiles` no `input type=file` ou a escolha de
 arquivo (`filechooser`) aberta pelo clique no botão. Confere os caminhos de novo depois da aprovação.
 
-**Trava** (`browser/gate.ts`, no servidor): pedem a sua aprovação `digitar` com `enviar: true`; `tecla` Enter
-(também com Control/Meta) num campo de formulário (input de texto, textarea, select, contenteditable ou dentro de um
-`<form>`), Enter/Espaço num botão que o `clicar` travaria, e Enter quando não dá para saber onde está o foco (iframe de
-outro site); todo `enviar_arquivo` (o cartão lista os arquivos com o tamanho e o site); `selecionar` só no WhatsApp; `clicar` num elemento
-cujo nome/texto fala em enviar, pagar, comprar, confirmar, excluir, publicar... (pt/en/es), num botão que submete um
-formulário (`type=submit`, `input` submit/image) ou num botão/link de formulário cujo nome/ação fala nisso; toda ação
-que altera a página no WhatsApp (`*.whatsapp.com`); e todo download (o arquivo vai para
-`<dataDir>/navegador-downloads` só com o ok; recusado, é cancelado). O pedido entra no registro de permissões por
+**Trava** (`browser/gate.ts`, no servidor, pura e por tabela). `classify(ação)` dá a categoria do risco e
+`needsApproval(categoria, modo, site confiável)` decide se pede:
+
+| Categoria | O que é | Cauteloso | Equilibrado (padrão) | Livre / site confiável |
+| --- | --- | --- | --- | --- |
+| `dinheiro` | pagar, comprar, finalizar compra/pedido, checkout, transferir, Pix, assinar plano, doar (pt/en/es; também o botão de um formulário de checkout) | pede | pede | pede |
+| `whatsapp` | toda ação que altera a página no `*.whatsapp.com` (e o `whatsapp_enviar`, sempre) | pede | pede | pede |
+| `destrutivo` | excluir, apagar, remover, deletar, eliminar, borrar, cancelar/encerrar/desativar conta ou assinatura, revogar | pede | pede | — |
+| `mensagem` | publicar, postar, tweet, enviar mensagem/e-mail, responder, comentar, convidar; "Enviar"/"Send" fora de `<form>`; Enter/`digitar` com `enviar` num campo de mensagem; Enter sem saber onde está o foco | pede | pede | — |
+| `upload` | `enviar_arquivo` | pede | pede | — |
+| `envio` | salvar, confirmar, aceitar, entrar, qualquer submit de formulário, Enter num campo de formulário | pede | — | — |
+| `download` | todo download (vai para `<dataDir>/navegador-downloads`) | pede | — | — |
+
+As palavras casam no começo de uma palavra do texto sem acento e em minúsculas, fechando a palavra: "Página",
+"Pagamentos" e "Compras" (menus), "removível", "Guardar borrador", "Envío gratis", "Remover filtro" e "Remove from
+cart" não pedem. `selecionar` só pede no WhatsApp; `passar_mouse`, `rolar`, `ler`, `esperar` e `ver_tela` nunca.
+`pedir_ajuda` não muda (é a vez do usuário, não uma aprovação).
+
+O modo e os sites confiáveis ficam em `<dataDir>/navegador.json` (`browser/config.ts`): `{"modo": "equilibrado",
+"sitesConfiaveis": ["127.0.0.1:4800"]}`, gravado de uma vez (`.tmp` + rename); ausente ou inválido = equilibrado sem
+sites. Site = `host:porta` com a porta explícita (`loja.example:443`); WhatsApp não entra na lista. Site confiável =
+`livre` naquele site. `GET /api/browser/config` e `PUT /api/browser/config` `{modo?, sitesConfiaveis?}` (a seção
+Navegador das Configurações) só pela porta local, `Host` local e conexão pelo loopback; no `PUT`, `Origin` ausente
+ou exatamente a da página (outra porta local também é recusada) e JSON; valor inválido → 400. Vale na próxima ação.
+
+Quando pede, o pedido entra no registro de permissões por
 dentro (`PermissionRegistry.requestInternal`, `browser/approval.ts`): o cartão (`mcp__navegador__clicar(site)`) mostra
 o site, o elemento como a página o descreve, a descrição do agente, o motivo e, ao digitar, o texto exato; a sala
-fica `waiting`. A requisição HTTP fica aberta até a resposta (até 5 min; o MCP usa `node:http` sem tempo limite);
+fica `waiting`. Fora de `dinheiro` e `whatsapp`, o cartão também oferece **"Permitir e confiar neste site"**
+(`PermissionRequestInfo.trustSite` = o `host:porta`; decisão `{behavior: 'allow', trustSite: true}`, recusada com 400
+onde o cartão não ofereceu): a ação roda e o site entra em `sitesConfiaveis`. A requisição HTTP fica aberta até a resposta (até 5 min; o MCP usa `node:http` sem tempo limite);
 conexão que cai tira o pedido. Sem página aberta, sessão desconhecida, recusa, "responder no terminal", tempo
 esgotado ou erro → a ação não roda e a resposta é `403 {code: 'denied'}`. Pedidos internos não são soltos como
 órfãos (não há long-poll) nem pela busca no transcript.

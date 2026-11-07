@@ -1,7 +1,8 @@
 // "Sistema Exemplo": um sistema interno de mentira, local, para testar o navegador do escritório como num sistema de
 // verdade (nunca se abre um site de fora). Tem login com usuário e senha (cookie), painel com menu de passar o mouse,
 // uma tabela de 300 clientes (longa: precisa de `rolar`/`ler parte`), o formulário "Novo cliente" (campos de texto,
-// <select> de UF, checkbox, arquivo e o botão Salvar, que envia), uma página lenta (o texto aparece depois de 2 s) e um
+// <select> de UF, checkbox, arquivo e o botão Salvar, que envia), a página do cliente salvo com o botão "Excluir
+// cliente" (destrutivo: a trava pede no modo equilibrado), uma página lenta (o texto aparece depois de 2 s) e um
 // gráfico em <canvas> (só dá para ver com `ver_tela`). Testes: startSistemaExemplo() numa porta livre;
 // à mão: npm run sistema:exemplo (porta 4800).
 import { randomBytes } from 'node:crypto';
@@ -45,6 +46,8 @@ export interface SistemaExemplo {
   cadastros: Cadastro[];
   /** Logins que deram certo. */
   logins: number;
+  /** Cadastros excluídos pelo "Excluir cliente" (o número, 1 = o primeiro). */
+  exclusoes: number[];
   close(): Promise<void>;
 }
 
@@ -170,7 +173,7 @@ function parseMultipart(body: Buffer, contentType: string): Map<string, { value:
 
 export async function startSistemaExemplo(port = 0, host = '127.0.0.1'): Promise<SistemaExemplo> {
   const sessions = new Set<string>();
-  const state = { cadastros: [] as Cadastro[], logins: 0 };
+  const state = { cadastros: [] as Cadastro[], logins: 0, exclusoes: [] as number[] };
   const html = (res: http.ServerResponse, body: string, status = 200, headers: Record<string, string> = {}) =>
     void res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', ...headers }).end(body);
   const go = (res: http.ServerResponse, to: string, headers: Record<string, string> = {}) => void res.writeHead(303, { Location: to, ...headers }).end();
@@ -215,7 +218,21 @@ export async function startSistemaExemplo(port = 0, host = '127.0.0.1'): Promise
         const c = state.cadastros[Number(u.searchParams.get('n')) - 1];
         if (!c) return html(res, page('Não achado', '<p>Cadastro não encontrado.</p>', { menu: true }), 404);
         const arq = c.arquivo ? `${esc(c.arquivo.nome)} (${c.arquivo.tamanho} bytes)` : 'nenhum';
-        return html(res, page('Cliente salvo', `<h1>Cliente salvo</h1><p>Nome: ${esc(c.nome)} · UF: ${esc(c.uf || '—')} · Ativo: ${c.ativo ? 'sim' : 'não'} · Documento: ${arq}</p>`, { menu: true }));
+        const n = Number(u.searchParams.get('n'));
+        return html(
+          res,
+          page(
+            'Cliente salvo',
+            `<h1>Cliente salvo</h1><p>Nome: ${esc(c.nome)} · UF: ${esc(c.uf || '—')} · Ativo: ${c.ativo ? 'sim' : 'não'} · Documento: ${arq}</p>
+<form method="post" action="/clientes/excluir" aria-label="Ações do cliente"><input type="hidden" name="n" value="${n}"><button>Excluir cliente</button></form>`,
+            { menu: true },
+          ),
+        );
+      }
+      if (u.pathname === '/clientes/excluir' && method === 'POST') {
+        const n = Number(new URLSearchParams((await readBody(req)).toString('utf8')).get('n'));
+        if (n >= 1 && n <= state.cadastros.length && !state.exclusoes.includes(n)) state.exclusoes.push(n);
+        return html(res, page('Cliente excluído', `<h1>Cliente excluído</h1><p>Cadastro ${n} excluído.</p>`, { menu: true }));
       }
       if (u.pathname === '/relatorio') return html(res, RELATORIO());
       if (u.pathname === '/grafico') return html(res, GRAFICO());
@@ -241,6 +258,9 @@ export async function startSistemaExemplo(port = 0, host = '127.0.0.1'): Promise
     },
     get logins() {
       return state.logins;
+    },
+    get exclusoes() {
+      return state.exclusoes;
     },
     close: () =>
       new Promise((done) => {

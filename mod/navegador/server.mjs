@@ -28,10 +28,11 @@ const INSTRUCTIONS =
   'mesma aba a abrir abas novas. Página longa (tabela, lista): use `rolar` ou `ler` com `parte` (a leitura avisa quando há ' +
   'mais). Quando o texto não basta (gráfico, imagem, layout), use `ver_tela`. Página que carrega devagar: `esperar` o texto. ' +
   'Login com senha, captcha, código de verificação (2FA) e QR são com o usuário: chame `pedir_ajuda` (ele faz na janela do ' +
-  'Chrome e avisa pelo escritório). NUNCA peça ao usuário para colar senha ou código no chat e nunca digite senha. Enviar, ' +
-  'submeter, salvar, pagar, confirmar, apagar ou publicar (clique, Enter num formulário, upload) espera a aprovação do usuário ' +
-  'no escritório: a chamada fica parada até ele responder. Nunca tente contornar a trava (outro botão, Enter, tecla, outro ' +
-  'caminho); se for recusada, pare e pergunte. WhatsApp: use `whatsapp_status`, `whatsapp_ler` e `whatsapp_enviar` (não ' +
+  'Chrome e avisa pelo escritório). NUNCA peça ao usuário para colar senha ou código no chat e nunca digite senha. A maior ' +
+  'parte das ações roda direto (preencher, salvar, cadastrar, confirmar, entrar, baixar). Pagar ou comprar, excluir ou ' +
+  'cancelar, mandar mensagem ou publicar para outras pessoas e enviar arquivos para um site não confiável esperam a ' +
+  'aprovação do usuário no escritório (o modo escolhido por ele pode pedir mais ou menos): a chamada fica parada até ele ' +
+  'responder. Nunca tente contornar a trava (outro botão, Enter, tecla, outro caminho); se for recusada, pare e pergunte. WhatsApp: use `whatsapp_status`, `whatsapp_ler` e `whatsapp_enviar` (não ' +
   '`abrir`/`clicar`/`digitar` no web.whatsapp.com). Só conversas individuais, uma mensagem por vez, nada de grupos, áudio, ' +
   'figurinhas, arquivos ou envio em massa. Use o nome do contato como o usuário disse; se a ferramenta devolver nomes ' +
   'parecidos ou vários, pergunte ao usuário qual é, nunca escolha sozinho. Não logado → peça para o usuário escanear o QR ' +
@@ -91,20 +92,20 @@ export const TOOLS = [
   {
     name: 'clicar',
     description:
-      'Clica num elemento da última leitura e devolve a leitura nova. Clicar em algo que envia, submete, salva, paga, confirma, apaga ou publica (e qualquer ação no WhatsApp) espera a aprovação do usuário no escritório; não tente contornar. Lista <select> nativa: use `selecionar`. Para mandar mensagem no WhatsApp, use `whatsapp_enviar`.',
+      'Clica num elemento da última leitura e devolve a leitura nova. Clicar para pagar/comprar, excluir/cancelar ou mandar mensagem/publicar (e qualquer ação no WhatsApp) espera a aprovação do usuário no escritório; salvar e enviar formulários comuns roda direto (no modo cauteloso também pede). Não tente contornar. Lista <select> nativa: use `selecionar`. Para mandar mensagem no WhatsApp, use `whatsapp_enviar`.',
     inputSchema: { type: 'object', properties: { tabId: TAB, ref: REF, elemento: ELEMENTO }, required: ['tabId', 'ref', 'elemento'], additionalProperties: false },
   },
   {
     name: 'digitar',
     description:
-      'Preenche um campo de texto da última leitura (substitui o que havia). Com enviar=true aperta Enter em seguida, o que espera a aprovação do usuário no escritório (ele vê o texto exato). Campo de senha é recusado: use `pedir_ajuda` para o login. Para o WhatsApp, use `whatsapp_enviar`.',
+      'Preenche um campo de texto da última leitura (substitui o que havia). Com enviar=true aperta Enter em seguida; num campo de mensagem/comentário ou num formulário de pagamento isso espera a aprovação do usuário no escritório (ele vê o texto exato). Campo de senha é recusado: use `pedir_ajuda` para o login. Para o WhatsApp, use `whatsapp_enviar`.',
     inputSchema: {
       type: 'object',
       properties: {
         tabId: TAB,
         ref: REF,
         texto: { type: 'string', description: 'Texto a digitar.' },
-        enviar: { type: 'boolean', description: 'Apertar Enter depois (envia/submete: pede aprovação).' },
+        enviar: { type: 'boolean', description: 'Apertar Enter depois (envia/submete; mensagem ou pagamento pede aprovação).' },
         elemento: { type: 'string', description: 'Descrição humana do campo (ex.: "campo de busca").' },
       },
       required: ['tabId', 'ref', 'texto'],
@@ -114,7 +115,7 @@ export const TOOLS = [
   {
     name: 'tecla',
     description:
-      'Aperta uma tecla no elemento `ref` (ou onde está o foco): nomes do Playwright como Tab, Escape, Enter, ArrowDown, ArrowUp, PageDown, Home, End, Backspace, Control+a. Serve para menus, autocompletar e listas. Enter num campo de formulário ou num botão que envia espera a aprovação do usuário (como digitar com enviar); no WhatsApp toda tecla espera.',
+      'Aperta uma tecla no elemento `ref` (ou onde está o foco): nomes do Playwright como Tab, Escape, Enter, ArrowDown, ArrowUp, PageDown, Home, End, Backspace, Control+a. Serve para menus, autocompletar e listas. Enter num campo ou num botão passa pela mesma trava de digitar com enviar e de clicar; no WhatsApp toda tecla espera.',
     inputSchema: {
       type: 'object',
       properties: { tabId: TAB, tecla: { type: 'string', description: 'Ex.: "Enter", "Tab", "ArrowDown", "Control+a".' }, ref: { type: 'string', description: 'Opcional: ref da última leitura (senão, onde está o foco).' }, elemento: ELEMENTO },
@@ -174,7 +175,7 @@ export const TOOLS = [
   {
     name: 'enviar_arquivo',
     description:
-      'Envia arquivo(s) da pasta do projeto desta sessão por um campo de arquivo da página (ref do campo "Escolher arquivo" ou do botão que abre a escolha). Sempre espera a aprovação do usuário no escritório (o cartão lista os arquivos e o site). Caminhos relativos à pasta do projeto; fora dela é recusado.',
+      'Envia arquivo(s) da pasta do projeto desta sessão por um campo de arquivo da página (ref do campo "Escolher arquivo" ou do botão que abre a escolha). Espera a aprovação do usuário no escritório (o cartão lista os arquivos e o site), menos nos sites que ele marcou como confiáveis. Caminhos relativos à pasta do projeto; fora dela é recusado.',
     inputSchema: {
       type: 'object',
       properties: { tabId: TAB, ref: REF, caminhos: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 10, description: 'Ex.: ["docs/contrato.pdf"].' }, elemento: ELEMENTO },

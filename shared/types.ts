@@ -652,6 +652,11 @@ export interface PermissionRequestInfo {
   questions?: AskQuestion[];
   /** Outros pedidos do mesmo agente esperando depois deste. */
   queued?: number;
+  /**
+   * Pedido do navegador do escritório: o site (host:porta) que dá para marcar como confiável junto com a aprovação
+   * (decisão `allow` com `trustSite: true`). Nunca em pagamentos nem no WhatsApp.
+   */
+  trustSite?: string;
   createdAt: number;
   /** Quando o hook desiste de esperar e o pedido passa a valer só no terminal. */
   expiresAt: number;
@@ -683,6 +688,8 @@ export interface PermissionDecision {
   interrupt?: boolean;
   /** Aprovação: aplica junto a sugestão desta posição (PermissionSuggestionInfo.index). */
   suggestion?: number;
+  /** Aprovação de um pedido do navegador: também põe o site (PermissionRequestInfo.trustSite) entre os confiáveis. */
+  trustSite?: boolean;
   /** Resposta (`answer`): uma por pergunta do pedido. */
   answers?: PermissionAnswer[];
 }

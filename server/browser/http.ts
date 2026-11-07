@@ -20,6 +20,11 @@
 //   POST /api/browser/whatsapp_enviar {sessionId, contato, texto}         → {ok, contato, confirmado, texto}
 //   POST /api/browser/whatsapp_ler    {sessionId, contato, quantas?}      → {ok, contato, mensagens, texto}
 //   GET  /api/browser/screenshot?sessionId=&tabId=                       → image/jpeg da aba (a mais nova sem tabId)
+//   GET  /api/browser/config                                              → {ok, modo, sitesConfiaveis}
+//   PUT  /api/browser/config    {modo?, sitesConfiaveis?}                 → {ok, modo, sitesConfiaveis}
+//
+// /api/browser/config é a única rota daqui usada pela página do escritório (Configurações › Navegador): o app.ts
+// confere Host local, conexão pelo loopback e, no PUT, Origin ausente ou da mesma origem (o guard já exigiu JSON).
 //
 // Erros: {ok: false, code, error} (400 invalid, 404 not-found, 409 stale/not-ready/ambiguous, 403 denied, 429 too-many,
 // 503 disabled, 500).
@@ -29,6 +34,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpError, readJson, sendJson } from '../http/app';
 import { tr } from '../../shared/i18n';
 import { errMsg, log } from '../log';
+import { InvalidBrowserConfig } from './config';
 import { BrowserError, type BrowserService } from './service';
 
 const STATUS: Record<BrowserError['code'], number> = { invalid: 400, 'not-found': 404, stale: 409, denied: 403, 'too-many': 429, disabled: 503, failed: 500, 'not-ready': 409, ambiguous: 409 };
@@ -111,6 +117,20 @@ export function createBrowserRoutes(browser: BrowserService): (req: IncomingMess
   return (req, res, url) => {
     const action = url.pathname.slice('/api/browser/'.length);
     const method = req.method ?? 'GET';
+    if (action === 'config') {
+      if (method === 'GET' || method === 'HEAD') return sendJson(res, 200, { ok: true, ...browser.config.get() });
+      if (method !== 'PUT') {
+        res.setHeader('Allow', 'GET, PUT');
+        return sendJson(res, 405, { ok: false, error: tr('método não permitido') });
+      }
+      readJson(req)
+        .then((body) => sendJson(res, 200, { ok: true, ...browser.config.update(body) }))
+        .catch((err) => {
+          if (err instanceof InvalidBrowserConfig) sendJson(res, 400, { ok: false, code: 'invalid', error: err.message });
+          else fail(res, err);
+        });
+      return;
+    }
     if (action === 'screenshot') {
       if (method !== 'GET') {
         res.setHeader('Allow', 'GET');

@@ -75,13 +75,15 @@ export function registryGate(registry: PermissionRegistry, port: number, timeout
       icon: ICONS[r.tool] ?? '🖱️',
       input: cardInput(r),
       timeoutMs: r.timeoutMs ?? timeoutMs,
+      // "Permitir e confiar neste site": nunca em pedir_ajuda nem no envio do WhatsApp.
+      ...(r.trustSite && r.tool !== 'ajuda' && r.tool !== 'whatsapp_enviar' ? { trustSite: r.trustSite } : {}),
     });
     if ('skip' in res) return { ok: false, message: skipMessage(res.skip, port), skip: res.skip };
     const onAbort = () => res.cancel();
     r.signal?.addEventListener('abort', onAbort, { once: true });
     try {
       const o = await res.result;
-      if (o.status === 'decided' && o.behavior === 'allow') return { ok: true };
+      if (o.status === 'decided' && o.behavior === 'allow') return o.trustSite ? { ok: true, trustSite: true } : { ok: true };
       if (o.status === 'decided' && o.behavior === 'deny' && r.tool === 'ajuda') {
         return { ok: false, message: o.message ? tr('o usuário disse que não vai fazer: {0}', [o.message]) : tr('o usuário disse que não vai fazer isso agora. Não tente contornar; pergunte no chat como ele prefere seguir.') };
       }

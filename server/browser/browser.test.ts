@@ -1,7 +1,8 @@
 // Navegador de verdade (Chrome do sistema, sem janela) contra páginas locais servidas aqui mesmo: o MCP do plugin
 // (mod/navegador/server.mjs) → /api/browser (com a trava de borda do app.ts) → BrowserService → trava no registro de
 // permissões. Abrir, ler, digitar e clicar em "Enviar" (que espera a aprovação: recusa e aprovação), refs velhas,
-// abas de outra sessão, sem escritório aberto, popup. Pula se não houver Chrome. Nunca acessa a internet.
+// abas de outra sessão, sem escritório aberto, popup. Modo cauteloso (o "Enviar" de formulário pede). Pula se não houver
+// Chrome. Nunca acessa a internet.
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -11,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { setQuiet } from '../log';
 import { MAIN, request, SESSION, servePermissions, type PermissionServer } from '../test/permission-server';
 import { registryGate } from './approval';
+import { BrowserConfigStore } from './config';
 import { createBrowserRoutes } from './http';
 import { BrowserService } from './service';
 
@@ -77,7 +79,7 @@ describe.skipIf(!CHROME)('navegador (Chrome sem janela, páginas locais)', () =>
     site = await fixtures();
     srv = await servePermissions({
       browser: (registry) => {
-        browser = new BrowserService({ profileDir: join(dir, 'perfil'), downloadsDir: join(dir, 'downloads'), headless: true, executablePath: CHROME, gate: registryGate(registry, 4747) });
+        browser = new BrowserService({ profileDir: join(dir, 'perfil'), downloadsDir: join(dir, 'downloads'), headless: true, executablePath: CHROME, gate: registryGate(registry, 4747), config: new BrowserConfigStore(null, { modo: 'cauteloso' }) });
         return createBrowserRoutes(browser);
       },
     });

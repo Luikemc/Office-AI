@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { setQuiet } from '../log';
 import { NameStore } from '../model/names';
 import { Office } from '../model/office';
-import { PermissionRegistry } from '../permissions/registry';
+import { parseDecision, PermissionRegistry } from '../permissions/registry';
 import { appendLines, L, tempDir, writeLines } from '../test/fixtures';
 import { cardInput, cardText, registryGate } from './approval';
 import type { GateRequest } from './service';
@@ -171,5 +171,43 @@ describe('cartões das ferramentas novas', () => {
     const up: GateRequest = { ...base, tool: 'enviar_arquivo', files: ['docs/a.pdf (1.0 KB)', 'b.png (3 B)'] };
     expect(cardText(up)).toBe('Enviar 2 arquivo(s) para erp.example');
     expect(cardInput(up)).toMatch(/Arquivos que serão enviados:\n- docs\/a\.pdf \(1\.0 KB\)\n- b\.png \(3 B\)/);
+  });
+});
+
+describe('"Permitir e confiar neste site"', () => {
+  it('o cartão oferece o site; allow com trustSite volta para a trava; sem oferta = inválido', async () => {
+    const { office, registry } = setup();
+    const gate = registryGate(registry, 4748);
+    const p = gate(req({ tool: 'enviar_arquivo', url: 'http://127.0.0.1:4800/clientes/novo', files: ['a.txt (1 B)'], trustSite: '127.0.0.1:4800' }));
+    await flush();
+    const a = office.commit().snapshot.agents.find((x) => x.id === MAIN)!;
+    expect(a.permission?.trustSite).toBe('127.0.0.1:4800');
+    expect(registry.decide(a.permission!.id, { behavior: 'allow', trustSite: true })).toBe('ok');
+    expect(await p).toEqual({ ok: true, trustSite: true });
+    expect(JSON.stringify(office.commit().snapshot.agents.find((x) => x.id === MAIN))).toMatch(/site confiável/);
+
+    // Sem oferta (pagamento): trustSite é recusado e o pedido continua esperando.
+    const p2 = gate(req());
+    await flush();
+    const id2 = office.commit().snapshot.agents.find((x) => x.id === MAIN)!.permission!.id;
+    expect(registry.detail(id2)?.trustSite).toBeUndefined();
+    expect(registry.decide(id2, { behavior: 'allow', trustSite: true })).toBe('invalid');
+    expect(registry.size).toBe(1);
+    expect(registry.decide(id2, { behavior: 'allow' })).toBe('ok');
+    expect(await p2).toEqual({ ok: true });
+
+    // O envio do WhatsApp e o pedido de ajuda nunca levam a oferta, mesmo se o serviço mandasse.
+    const p3 = gate(req({ tool: 'whatsapp_enviar', url: 'https://web.whatsapp.com/', element: 'Ana', text: 'oi', trustSite: 'web.whatsapp.com:443' }));
+    await flush();
+    const id3 = office.commit().snapshot.agents.find((x) => x.id === MAIN)!.permission!.id;
+    expect(registry.detail(id3)?.trustSite).toBeUndefined();
+    registry.decide(id3, { behavior: 'deny' });
+    expect((await p3).ok).toBe(false);
+  });
+
+  it('parseDecision: trustSite só true e só no allow', () => {
+    expect(parseDecision({ behavior: 'allow', trustSite: true })).toEqual({ behavior: 'allow', trustSite: true });
+    expect(parseDecision({ behavior: 'allow', trustSite: 'sim' })).toBeUndefined();
+    expect(parseDecision({ behavior: 'deny', trustSite: true })).toEqual({ behavior: 'deny' });
   });
 });

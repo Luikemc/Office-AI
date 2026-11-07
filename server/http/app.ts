@@ -117,6 +117,19 @@ function isLoopbackAddress(addr: string | undefined): boolean {
   return a === '::1' || /^127\./.test(a);
 }
 
+/** Origin ausente (curl, scripts) ou exatamente a origem do Host desta requisição (a própria página). */
+function sameOrigin(req: IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (origin === undefined) return true;
+  if (typeof origin !== 'string' || origin === 'null') return false;
+  try {
+    const u = new URL(origin);
+    return (u.protocol === 'http:' || u.protocol === 'https:') && !!req.headers.host && u.host.toLowerCase() === req.headers.host.trim().toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 /** Rotas das mensagens pelo escritório (server/messages/http.ts); /api/mod/summary fica de fora (sem trava). */
 /**
  * Rotas dos hooks, dos plugins e do auxiliar do host: registrar e esperar pedidos de permissão, buscar as mensagens de
@@ -444,6 +457,19 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         terminals,
         trusted: isRemote(req) ? trusted(req, 'terminal') : undefined,
       });
+      return true;
+    }
+    if (path === '/api/browser/config') {
+      // Configurações › Navegador (a página): modo da trava e sites confiáveis. Host local e conexão pelo loopback, como
+      // as outras rotas do navegador; no PUT a página manda Origin, que precisa ser exatamente a desta página (o guard
+      // já recusou origens de fora e exigiu JSON; aqui nem outra porta local passa).
+      if (!deps.browser) {
+        req.resume();
+        sendJson(res, 503, { ok: false, code: 'disabled', error: tr('navegador desligado (HABBLAUD_BROWSER=0, Docker ou beta-tester acessível pela rede)') });
+      } else if (!trusted(req) || !isLoopbackAddress(req.socket.remoteAddress) || (!isRead && !sameOrigin(req))) {
+        req.resume();
+        sendJson(res, 403, { ok: false, code: 'forbidden', error: denied(req, tr('a configuração do navegador só muda pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
+      } else deps.browser(req, res, url);
       return true;
     }
     if (path.startsWith('/api/browser/')) {

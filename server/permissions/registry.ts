@@ -104,7 +104,7 @@ export type ReleaseReason = 'terminal' | 'answered' | 'expired' | 'orphan' | 'go
  */
 export type WaitResult =
   | { status: 'pending' }
-  | { status: 'decided'; behavior: 'allow' | 'deny'; message?: string; interrupt?: boolean; suggestion?: number }
+  | { status: 'decided'; behavior: 'allow' | 'deny'; message?: string; interrupt?: boolean; suggestion?: number; trustSite?: boolean }
   | { status: 'decided'; behavior: 'answer'; answers: PermissionAnswer[] }
   | { status: 'released'; reason: ReleaseReason };
 
@@ -173,6 +173,11 @@ export interface InternalRequest {
   /** O que vai acontecer, em texto (o texto digitado vai inteiro). */
   input?: string;
   timeoutMs?: number;
+  /**
+   * Site (host:porta) que o cartão oferece para "Permitir e confiar neste site" (decisão `allow` com `trustSite`).
+   * Ausente = o cartão só tem Permitir/Recusar.
+   */
+  trustSite?: string;
 }
 
 export type InternalResult = { id: string; result: Promise<Exclude<WaitResult, { status: 'pending' }>>; cancel: () => void } | { skip: SkipReason };
@@ -360,6 +365,10 @@ export function parseDecision(raw: unknown): PermissionDecision | undefined {
     if (typeof r.message === 'string' && r.message.trim()) d.message = r.message.trim().slice(0, MAX_MESSAGE);
     if (r.interrupt === true) d.interrupt = true;
   }
+  if (r.behavior === 'allow' && r.trustSite !== undefined) {
+    if (r.trustSite !== true) return undefined;
+    d.trustSite = true;
+  }
   if (r.behavior === 'allow' && r.suggestion !== undefined) {
     if (typeof r.suggestion !== 'number' || !Number.isInteger(r.suggestion) || r.suggestion < 0) return undefined;
     d.suggestion = r.suggestion;
@@ -490,6 +499,7 @@ export class PermissionRegistry {
       info.input = req.input;
       info.inputKind = 'text';
     }
+    if (req.trustSite) info.trustSite = req.trustSite;
     let done!: (o: Exclude<WaitResult, { status: 'pending' }>) => void;
     const result = new Promise<Exclude<WaitResult, { status: 'pending' }>>((r) => (done = r));
     const p: Pending = { info, agentId: target.id, sessionId: req.sessionId, signature: '', lastScanAt: 0, waiters: new Set(), idleSince: now, internal: done };
@@ -569,6 +579,8 @@ export class PermissionRegistry {
     if (p.outcome) return 'conflict';
     if (unsupportedByCodex(p.info, d)) return 'unsupported';
     if (d.suggestion !== undefined && !p.info.suggestions?.some((s) => s.index === d.suggestion)) return 'invalid';
+    // "Permitir e confiar neste site" só vale onde o cartão ofereceu (pedido interno do navegador, sem dinheiro nem WhatsApp).
+    if (d.trustSite && (!p.internal || !p.info.trustSite)) return 'invalid';
     if (d.behavior === 'terminal') {
       this.release(p, 'terminal');
       return 'ok';
@@ -579,11 +591,12 @@ export class PermissionRegistry {
     if (d.message) outcome.message = d.message;
     if (d.interrupt) outcome.interrupt = true;
     if (d.suggestion !== undefined) outcome.suggestion = d.suggestion;
+    if (d.trustSite && d.behavior === 'allow') outcome.trustSite = true;
     this.resolve(p, outcome);
     const now = this.now();
     const act: Activity =
       d.behavior === 'allow'
-        ? { id: `${p.agentId}#perm-ok:${id}`, at: now, kind: 'other', icon: '✅', text: d.suggestion !== undefined ? tr('Aprovado no beta-tester (sempre permitir)') : tr('Aprovado no beta-tester'), detail: p.info.title, tool: 'PermissionRequest' }
+        ? { id: `${p.agentId}#perm-ok:${id}`, at: now, kind: 'other', icon: '✅', text: d.suggestion !== undefined ? tr('Aprovado no beta-tester (sempre permitir)') : d.trustSite ? tr('Aprovado no beta-tester (site confiável)') : tr('Aprovado no beta-tester'), detail: p.info.title, tool: 'PermissionRequest' }
         : { id: `${p.agentId}#perm-no:${id}`, at: now, kind: 'wait', icon: '🚫', text: tr('Recusado no beta-tester'), detail: d.message ? `${p.info.title} — ${d.message}` : p.info.title, tool: 'PermissionRequest' };
     this.opts.office.addActivity(p.agentId, act, false);
     return 'ok';

@@ -29,6 +29,7 @@ import { HistorySet, SourceSet } from './sources/source';
 import { createPermissionRoutes } from './permissions/http';
 import { PermissionRegistry } from './permissions/registry';
 import { registryGate } from './browser/approval';
+import { BrowserConfigStore } from './browser/config';
 import { createBrowserRoutes } from './browser/http';
 import { BrowserService } from './browser/service';
 import { codexAccountOf } from './codex/http';
@@ -257,6 +258,8 @@ const browser =
         headless: process.env.HABBLAUD_BROWSER_HEADLESS?.trim() === '1',
         executablePath: process.env.HABBLAUD_BROWSER_PATH?.trim() || undefined,
         gate: registryGate(permissions, config.port),
+        // Modo da trava (cauteloso / equilibrado / livre) e sites confiáveis: Configurações › Navegador.
+        config: new BrowserConfigStore(join(config.dataDir, 'navegador.json')),
         // enviar_arquivo só envia arquivos da pasta do projeto da sessão (o cwd da sala dela no escritório).
         projectDir: (sessionId) => {
           const main = office.list().find((a) => a.kind === 'main' && a.provider !== 'codex' && a.sessionId === sessionId && a.status !== 'offline');

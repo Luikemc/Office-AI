@@ -11147,3 +11147,27 @@ html.is-replay #world {
 .ui-world-chip__visitors[hidden] {
   display: none;
 }
+
+/* Configurações › Navegador: lista dos sites confiáveis (host:porta e o botão Remover). */
+.ui-navsites {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ui-navsites__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ui-navsites__site {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}

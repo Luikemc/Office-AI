@@ -1,7 +1,9 @@
 // O navegador do escritório num "sistema interno" de verdade (server/test/sistema-fixture.ts, local): login pelo
 // usuário (pedir_ajuda; senha o modelo não digita), navegar/voltar, menu de passar o mouse, tabela longa (rolar e ler
-// parte), <select>, esperar uma página lenta, ver_tela (JPEG), Enter num campo (trava), enviar_arquivo (só da pasta do
-// projeto; trava) e Salvar (trava). Chrome do sistema sem janela; pula se não houver Chrome. Nunca acessa a internet.
+// parte), <select>, esperar uma página lenta, ver_tela (JPEG) e a trava no modo equilibrado: Enter num campo e Salvar
+// rodam direto, enviar_arquivo (só da pasta do projeto) e "Excluir cliente" pedem, "Permitir e confiar neste site"
+// solta o próximo upload e o modo cauteloso volta a pedir o Salvar. Chrome do sistema sem janela; pula se não houver
+// Chrome. Nunca acessa a internet.
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -195,7 +197,8 @@ describe.skipIf(!CHROME)('navegador num sistema interno (Sistema Exemplo, Chrome
     expect(shot.text).toMatch(/Tela da aba/);
   }, T);
 
-  it('formulário: selecionar UF; Enter no campo espera aprovação; enviar_arquivo só do projeto e com aprovação; Salvar com aprovação', async () => {
+  it('formulário (modo equilibrado): selecionar UF; Enter no campo e Salvar rodam direto; enviar_arquivo só do projeto e com aprovação', async () => {
+    expect(browser.config.get().modo).toBe('equilibrado');
     let r = await call('navegar', { tabId: tab, url: `${app.base}/clientes/novo` });
     const before = app.cadastros.length;
 
@@ -211,26 +214,25 @@ describe.skipIf(!CHROME)('navegador num sistema interno (Sistema Exemplo, Chrome
     expect(notSelect.text).toMatch(/não é uma lista <select>.*clicar/s);
     r = await call('ler', { tabId: tab });
 
-    r = await call('digitar', { tabId: tab, ref: ref(r.text, 'textbox "Nome"'), texto: 'Maria Teste', elemento: 'campo Nome' });
+    r = await call('digitar', { tabId: tab, ref: ref(r.text, 'textbox "Nome"'), texto: 'Rascunho Enter', elemento: 'campo Nome' });
     expect(r.isError, r.text).toBe(false);
-    expect(srv.registry!.size).toBe(0);
-    // Tab passa livre; Enter num campo do formulário espera (recusado → nada enviado).
     r = await call('tecla', { tabId: tab, tecla: 'Tab' });
     expect(r.isError, r.text).toBe(false);
+    // Enter num campo de formulário comum: roda sem cartão (envia o cadastro).
+    r = await call('tecla', { tabId: tab, tecla: 'Enter', ref: ref(r.text, 'textbox "Nome"'), elemento: 'campo Nome' });
+    expect(r.isError, r.text).toBe(false);
     expect(srv.registry!.size).toBe(0);
-    const enter = call('tecla', { tabId: tab, tecla: 'Enter', ref: ref(r.text, 'textbox "Nome"'), elemento: 'campo Nome' });
-    const pe = await pending();
-    expect(pe.tool).toBe('mcp__navegador__tecla');
-    expect(pe.text).toMatch(/Apertar Enter/);
-    await decide(pe.id, 'deny');
-    const denied = await enter;
-    expect(denied.text).toMatch(/RECUSADO/);
-    expect(app.cadastros.length).toBe(before);
+    expect(r.text).toMatch(/Título: Cliente salvo/);
+    expect(app.cadastros.length).toBe(before + 1);
+    expect(app.cadastros.at(-1)).toMatchObject({ nome: 'Rascunho Enter', uf: 'SP' });
     const badKey = await call('tecla', { tabId: tab, tecla: 'Enter; rm' });
     expect(badKey.isError).toBe(true);
 
+    r = await call('navegar', { tabId: tab, url: `${app.base}/clientes/novo` });
+    r = await call('digitar', { tabId: tab, ref: ref(r.text, 'textbox "Nome"'), texto: 'Maria Teste', elemento: 'campo Nome' });
+    r = await call('selecionar', { tabId: tab, ref: ref(r.text, 'combobox "UF"'), valores: ['SP'] });
+
     // enviar_arquivo: fora do projeto, "..", link para fora e arquivo que não existe são recusados sem cartão.
-    r = await call('ler', { tabId: tab });
     const docRef = ref(r.text, '"Documento"');
     for (const caminhos of [[join(dir, 'segredo.txt')], ['../segredo.txt'], ['atalho.txt'], ['nao-existe.pdf']]) {
       const out = await call('enviar_arquivo', { tabId: tab, ref: docRef, caminhos });
@@ -239,10 +241,11 @@ describe.skipIf(!CHROME)('navegador num sistema interno (Sistema Exemplo, Chrome
     }
     expect(srv.registry!.size).toBe(0);
 
-    // Dentro do projeto: cartão com os arquivos e o site. Recusado → nada escolhido; aprovado → escolhido.
+    // Dentro do projeto, site não confiável: cartão com os arquivos, o site e a oferta de confiar. Recusado → nada; aprovado → escolhido.
     const up1 = call('enviar_arquivo', { tabId: tab, ref: docRef, caminhos: ['docs/contrato.txt'], elemento: 'campo Documento' });
     const pu = await pending();
     expect(pu.tool).toBe('mcp__navegador__enviar_arquivo');
+    expect(pu.trustSite).toBe(`127.0.0.1:${app.port}`);
     const detail = (await request(srv.base, `/api/permissions/${pu.id}`)).json as { input: string };
     expect(detail.input).toMatch(/docs\/contrato\.txt \(18 B\)/);
     expect(detail.input).toMatch(/Site: http:\/\/127\.0\.0\.1/);
@@ -255,18 +258,55 @@ describe.skipIf(!CHROME)('navegador num sistema interno (Sistema Exemplo, Chrome
     r = await up2;
     expect(r.isError, r.text).toBe(false);
     expect(r.text).toMatch(/arquivos escolhidos: docs\/contrato\.txt/);
+    expect(browser.config.get().sitesConfiaveis).toEqual([]);
 
-    // Checkbox passa livre; Salvar espera a aprovação.
+    // Checkbox e Salvar rodam direto no equilibrado.
     r = await call('clicar', { tabId: tab, ref: ref(r.text, 'checkbox "Cliente ativo"'), elemento: 'Cliente ativo' });
     expect(r.isError, r.text).toBe(false);
-    expect(srv.registry!.size).toBe(0);
-    const save = call('clicar', { tabId: tab, ref: ref(r.text, 'button "Salvar"'), elemento: 'botão Salvar do cadastro' });
-    const ps = await pending();
-    expect(ps.tool).toBe('mcp__navegador__clicar');
-    await decide(ps.id, 'allow');
-    const saved = await save;
+    const saved = await call('clicar', { tabId: tab, ref: ref(r.text, 'button "Salvar"'), elemento: 'botão Salvar do cadastro' });
     expect(saved.isError, saved.text).toBe(false);
+    expect(srv.registry!.size).toBe(0);
     expect(saved.text).toMatch(/Cliente salvo/);
     expect(app.cadastros.at(-1)).toMatchObject({ nome: 'Maria Teste', uf: 'SP', ativo: true, arquivo: { nome: 'contrato.txt', tamanho: 18 } });
+
+    // "Excluir cliente" (destrutivo) pede; recusado → nada excluído.
+    const del = call('clicar', { tabId: tab, ref: ref(saved.text, 'button "Excluir cliente"'), elemento: 'botão Excluir cliente' });
+    const pd = await pending();
+    expect(pd.tool).toBe('mcp__navegador__clicar');
+    expect(pd.trustSite).toBe(`127.0.0.1:${app.port}`);
+    expect((await request(srv.base, `/api/permissions/${pd.id}`)).json).toMatchObject({ input: expect.stringMatching(/excluir, apagar ou cancelar/) });
+    await decide(pd.id, 'deny');
+    expect((await del).text).toMatch(/RECUSADO/);
+    expect(app.exclusoes).toEqual([]);
+  }, T);
+
+  it('"Permitir e confiar neste site": o próximo upload no mesmo site roda direto; cauteloso volta a pedir o Salvar', async () => {
+    let r = await call('navegar', { tabId: tab, url: `${app.base}/clientes/novo` });
+    const up = call('enviar_arquivo', { tabId: tab, ref: ref(r.text, '"Documento"'), caminhos: ['docs/contrato.txt'], elemento: 'campo Documento' });
+    const p = await pending();
+    expect((await request(srv.base, `/api/permissions/${p.id}/decision`, { method: 'POST', body: { behavior: 'allow', trustSite: true } })).status).toBe(200);
+    r = await up;
+    expect(r.isError, r.text).toBe(false);
+    expect(r.text).toMatch(/marcou 127\.0\.0\.1:\d+ como site confiável/);
+    expect(browser.config.get().sitesConfiaveis).toEqual([`127.0.0.1:${app.port}`]);
+
+    // Próximo upload no mesmo site: sem cartão.
+    r = await call('navegar', { tabId: tab, url: `${app.base}/clientes/novo` });
+    r = await call('enviar_arquivo', { tabId: tab, ref: ref(r.text, '"Documento"'), caminhos: ['docs/contrato.txt'], elemento: 'campo Documento' });
+    expect(r.isError, r.text).toBe(false);
+    expect(srv.registry!.size).toBe(0);
+    expect(r.text).toMatch(/arquivos escolhidos: docs\/contrato\.txt/);
+
+    // Modo cauteloso e sem sites confiáveis (como nas configurações): Salvar volta a pedir, na hora.
+    browser.config.update({ modo: 'cauteloso', sitesConfiaveis: [] });
+    r = await call('digitar', { tabId: tab, ref: ref(r.text, 'textbox "Nome"'), texto: 'Cauteloso', elemento: 'campo Nome' });
+    const before = app.cadastros.length;
+    const save = call('clicar', { tabId: tab, ref: ref(r.text, 'button "Salvar"'), elemento: 'botão Salvar' });
+    const ps = await pending();
+    expect(ps.trustSite).toBe(`127.0.0.1:${app.port}`);
+    await decide(ps.id, 'deny');
+    expect((await save).text).toMatch(/RECUSADO/);
+    expect(app.cadastros.length).toBe(before);
+    browser.config.update({ modo: 'equilibrado' });
   }, T);
 });
