@@ -1,10 +1,10 @@
 // Instala (ou remove) o mod do Habblaud no Claude Code de cada conta. Roda no HOST, com tsx:
 //
 //   npm run mod:install      # marketplace "habblaud" (esta pasta) + plugins habblaud, habblaud-permissoes e
-//                            # habblaud-mensagens
-//   npm run mod:uninstall    # tira os três plugins e o marketplace de cada conta
+//                            # habblaud-mensagens (e documentos, com --com-documentos)
+//   npm run mod:uninstall    # tira os plugins e o marketplace de cada conta
 //   npm run mod:status       # por conta: marketplace, plugins (e versões) e restos do jeito antigo
-//   (opções: --sem-permissoes, --sem-mensagens, --com-navegador, --conta <pasta>, --dry-run, --claude <comando>)
+//   (opções: --sem-permissoes, --sem-mensagens, --com-navegador, --com-documentos, --conta <pasta>, --dry-run, --claude <comando>)
 //
 // Tudo passa pelo CLI do próprio Claude Code (`claude plugin ...`), rodado uma vez por conta com o
 // CLAUDE_CONFIG_DIR daquela conta, como faz o atalho do shell (`alias d='CLAUDE_CONFIG_DIR=... claude'`). Assim
@@ -66,8 +66,10 @@ export const PERMISSIONS_PLUGIN = `habblaud-permissoes@${MARKETPLACE}`;
 export const MESSAGES_PLUGIN = `habblaud-mensagens@${MARKETPLACE}`;
 /** Navegador do escritório (MCP): só com --com-navegador (age com os logins do perfil do Chrome do Habblaud). */
 export const BROWSER_PLUGIN = `navegador@${MARKETPLACE}`;
+/** Servidor MCP local que lê e confere documentos (PDF, planilha, Word) da pasta do projeto. */
+export const DOCUMENTS_PLUGIN = `documentos@${MARKETPLACE}`;
 /** Os plugins do Habblaud, na ordem da saída (status, remoção, atualização). */
-export const PLUGINS = [MOD_PLUGIN, PERMISSIONS_PLUGIN, MESSAGES_PLUGIN, BROWSER_PLUGIN] as const;
+export const PLUGINS = [MOD_PLUGIN, PERMISSIONS_PLUGIN, MESSAGES_PLUGIN, BROWSER_PLUGIN, DOCUMENTS_PLUGIN] as const;
 /** Marketplace do nome antigo (CodeTown, até a 0.3.2): a mesma pasta, registrada com o nome que ela tinha. */
 export const LEGACY_MARKETPLACE = LEGACY_NAME;
 /** Os plugins que vinham dele (o mod e o de permissões, com o nome antigo). */
@@ -79,7 +81,7 @@ const SCOPE = 'user';
 /** Tempo máximo de cada chamada ao CLI (o add/update de um diretório local leva poucos segundos). */
 const CLI_TIMEOUT_MS = 120_000;
 
-const USAGE = tr('Uso: npm run mod:<install|uninstall|status> [-- opções]\n\n  install     instala o mod do Habblaud no Claude Code de cada conta (marketplace desta pasta + plugins)\n              e tira o que ele substitui: o tap de statusline e o hook de permissão antigos e o mod do\n              nome antigo (codetown)\n  uninstall   tira os plugins e o marketplace do Habblaud de cada conta (e os do nome antigo, se sobraram)\n  status      mostra, por conta, o marketplace, os plugins (e versões) e o que sobrou do jeito antigo\n\nOpções:\n  --sem-permissoes   não instala o plugin de responder permissões pelo escritório (e mantém o hook antigo)\n  --sem-mensagens    não instala o plugin de mandar mensagens pelo escritório (um já instalado continua)\n  --com-navegador    instala também o navegador do escritório (plugin navegador, MCP com Chrome local)\n  --conta <pasta>    só esta conta (ex.: --conta ~/.claude-conta2); pode repetir\n  --dry-run          mostra o que faria, sem instalar nem gravar nada\n  --claude <cmd>     comando do Claude Code (padrão: claude, do PATH)\n  -h, --help         mostra esta ajuda\n\nPrecisa do Claude Code {0} ou mais novo. Em versões anteriores, use o jeito antigo:\nnpm run usage:install (uso ao vivo) e npm run hooks:install (responder permissões); mandar mensagens pelo\nescritório só existe com o mod.\n\nContas: as mesmas do servidor (~/.claude* com projects/ ou sessions/, CLAUDE_CONFIG_DIR ou\nHABBLAUD_CLAUDE_DIRS). Uso capturado em HABBLAUD_USAGE_DIR (padrão ~/.habblaud/usage).', [MIN_CLAUDE_VERSION]);
+const USAGE = tr('Uso: npm run mod:<install|uninstall|status> [-- opções]\n\n  install     instala o mod do Habblaud no Claude Code de cada conta (marketplace desta pasta + plugins)\n              e tira o que ele substitui: o tap de statusline e o hook de permissão antigos e o mod do\n              nome antigo (codetown)\n  uninstall   tira os plugins e o marketplace do Habblaud de cada conta (e os do nome antigo, se sobraram)\n  status      mostra, por conta, o marketplace, os plugins (e versões) e o que sobrou do jeito antigo\n\nOpções:\n  --sem-permissoes   não instala o plugin de responder permissões pelo escritório (e mantém o hook antigo)\n  --sem-mensagens    não instala o plugin de mandar mensagens pelo escritório (um já instalado continua)\n  --com-navegador    instala também o navegador do escritório (plugin navegador, MCP com Chrome local)\n  --com-documentos   instala também o plugin de ler e conferir documentos (servidor MCP em toda sessão)\n  --conta <pasta>    só esta conta (ex.: --conta ~/.claude-conta2); pode repetir\n  --dry-run          mostra o que faria, sem instalar nem gravar nada\n  --claude <cmd>     comando do Claude Code (padrão: claude, do PATH)\n  -h, --help         mostra esta ajuda\n\nPrecisa do Claude Code {0} ou mais novo. Em versões anteriores, use o jeito antigo:\nnpm run usage:install (uso ao vivo) e npm run hooks:install (responder permissões); mandar mensagens pelo\nescritório só existe com o mod.\n\nContas: as mesmas do servidor (~/.claude* com projects/ ou sessions/, CLAUDE_CONFIG_DIR ou\nHABBLAUD_CLAUDE_DIRS). Uso capturado em HABBLAUD_USAGE_DIR (padrão ~/.habblaud/usage).', [MIN_CLAUDE_VERSION]);
 
 // ---------------------------------------------------------------------------------------------
 // O CLI do Claude Code (injetável: os testes nunca chamam o de verdade)
@@ -303,6 +305,8 @@ export interface PlanOptions {
   messages: boolean;
   /** Instalar também o navegador (--com-navegador; um já instalado continua e acompanha a versão). */
   browser?: boolean;
+  /** Instalar também o plugin de documentos (só com --com-documentos). */
+  documents?: boolean;
   /** Compara pastas (padrão: caminho real). */
   sameDir?: (a: string, b: string) => boolean;
 }
@@ -363,7 +367,7 @@ export function planInstall(state: AccountState, o: PlanOptions): InstallPlan {
       message: tr('marketplace {0}: passou a apontar para esta pasta (antes: {1})', [MARKETPLACE, m.path ?? m.source ?? tr('outra origem')]),
     });
   }
-  const wanted = [MOD_PLUGIN, ...(o.permissions ? [PERMISSIONS_PLUGIN] : []), ...(o.messages ? [MESSAGES_PLUGIN] : []), ...(o.browser ? [BROWSER_PLUGIN] : [])];
+  const wanted = [MOD_PLUGIN, ...(o.permissions ? [PERMISSIONS_PLUGIN] : []), ...(o.messages ? [MESSAGES_PLUGIN] : []), ...(o.browser ? [BROWSER_PLUGIN] : []), ...(o.documents ? [DOCUMENTS_PLUGIN] : [])];
   for (const id of wanted) {
     const name = shortName(id);
     const cur = userInstall(state, id);
@@ -397,6 +401,14 @@ export function planInstall(state: AccountState, o: PlanOptions): InstallPlan {
     }
     plan.plugins.push(id);
     if (flag) plan.notes.push(tr('{0} já estava instalado e continua ({1} não o remove; para tirar: claude plugin uninstall {2})', [shortName(id), flag, id]));
+  }
+  // O de documentos é opcional (--com-documentos): sem a opção, um já instalado só acompanha a versão.
+  const docs = o.documents ? undefined : userInstall(state, DOCUMENTS_PLUGIN);
+  if (docs) {
+    if (docs.version !== o.version) {
+      plan.items.push({ args: ['plugin', 'update', DOCUMENTS_PLUGIN, '--scope', SCOPE], message: tr('{0}: atualizado de {1} para {2}', [shortName(DOCUMENTS_PLUGIN), docs.version ?? '?', o.version]), plugin: DOCUMENTS_PLUGIN });
+    }
+    plan.plugins.push(DOCUMENTS_PLUGIN);
   }
   return plan;
 }
@@ -587,6 +599,8 @@ export interface RunOptions {
   messages: boolean;
   /** true com --com-navegador. */
   browser?: boolean;
+  /** true com --com-documentos. */
+  documents?: boolean;
   /** --conta (vazio = todas as detectadas). */
   accounts: string[];
   claudeCmd?: string;
@@ -636,6 +650,7 @@ export function parseArgs(argv: string[]): RunOptions | 'help' {
   let permissions = true;
   let messages = true;
   let browser = false;
+  let documents = false;
   let claudeCmd: string | undefined;
   const accounts: string[] = [];
   for (let i = 0; i < argv.length; i++) {
@@ -645,6 +660,7 @@ export function parseArgs(argv: string[]): RunOptions | 'help' {
     else if (a === '--sem-permissoes') permissions = false;
     else if (a === '--sem-mensagens') messages = false;
     else if (a === '--com-navegador') browser = true;
+    else if (a === '--com-documentos') documents = true;
     else if (a === '--conta') {
       const dir = argv[++i];
       if (!dir) throw new FatalError(tr('--conta precisa da pasta da conta (ex.: --conta ~/.claude-conta2).'));
@@ -656,7 +672,7 @@ export function parseArgs(argv: string[]): RunOptions | 'help' {
     else throw new FatalError(tr('opção desconhecida: {0}\n\n{1}', [a, USAGE]));
   }
   if (!command) throw new FatalError(tr('diga o que fazer: install, uninstall ou status.\n\n{0}', [USAGE]));
-  return { command, dryRun, permissions, messages, ...(browser ? { browser } : {}), accounts, claudeCmd };
+  return { command, dryRun, permissions, messages, ...(browser ? { browser } : {}), documents, accounts, claudeCmd };
 }
 
 /** Versão do package.json da raiz. */
@@ -787,7 +803,7 @@ export async function run(opts: RunOptions, ctx: RunContext): Promise<number> {
       continue;
     }
     const plan =
-      opts.command === 'install' ? planInstall(state, { root: ctx.root, version: ctx.version, permissions: opts.permissions, messages: opts.messages, browser: opts.browser }) : planUninstall(state);
+      opts.command === 'install' ? planInstall(state, { root: ctx.root, version: ctx.version, permissions: opts.permissions, messages: opts.messages, browser: opts.browser, documents: opts.documents }) : planUninstall(state);
     const failed = new Set<string>();
     let broken = false;
     let stepFailed = false;

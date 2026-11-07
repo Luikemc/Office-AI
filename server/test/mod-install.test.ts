@@ -13,6 +13,7 @@ import {
   describeStatus,
   LEGACY_PLUGINS,
   MESSAGES_HINT,
+  DOCUMENTS_PLUGIN,
   MESSAGES_PLUGIN,
   MOD_PLUGIN,
   parseArgs,
@@ -168,6 +169,13 @@ describe('mod-install.ts (funções puras)', () => {
       `plugin install ${MOD_PLUGIN} --scope user`,
       `plugin install ${MESSAGES_PLUGIN} --scope user`,
     ]);
+    // O de documentos (servidor MCP em toda sessão) só com --com-documentos; um já instalado acompanha a versão.
+    const docs = planInstall(stateOf([], null), { ...base, permissions: false, messages: false, documents: true });
+    expect(argsOf(docs).slice(1)).toEqual([`plugin install ${MOD_PLUGIN} --scope user`, `plugin install ${DOCUMENTS_PLUGIN} --scope user`]);
+    expect(cliSteps(docs)[2].message).toBe('documentos: instalado');
+    const docsOld = planInstall(stateOf([plugin(MOD_PLUGIN), plugin(DOCUMENTS_PLUGIN, { version: '0.1.0' })]), { ...base, permissions: false, messages: false });
+    expect(argsOf(docsOld)).toEqual(['plugin marketplace update habblaud', `plugin update ${DOCUMENTS_PLUGIN} --scope user`]);
+    expect(docsOld.plugins).toEqual([MOD_PLUGIN, DOCUMENTS_PLUGIN]);
   });
 
   it('install: já instalado relê o catálogo e nada mais; desligado religa; versão diferente atualiza; faltando, instala', () => {
@@ -215,7 +223,8 @@ describe('mod-install.ts (funções puras)', () => {
     ]);
     const none = planUninstall(stateOf([], null));
     expect(cliSteps(none)).toEqual([]);
-    expect(none.items).toHaveLength(4);
+    expect(none.items).toHaveLength(5);
+    expect(argsOf(planUninstall(stateOf([plugin(DOCUMENTS_PLUGIN)])))).toEqual([`plugin uninstall ${DOCUMENTS_PLUGIN} --scope user`, 'plugin marketplace remove habblaud']);
   });
 
   describe('nome antigo (codetown, até a 0.3.2)', () => {
@@ -264,7 +273,7 @@ describe('mod-install.ts (funções puras)', () => {
       ]);
       const onlyOld = planUninstall(legacyState());
       expect(argsOf(onlyOld)).toEqual([`plugin uninstall ${OLD_MOD} --scope user`, `plugin uninstall ${OLD_PERM} --scope user`, 'plugin marketplace remove codetown']);
-      expect(onlyOld.items.filter((i) => 'unchanged' in i)).toHaveLength(4);
+      expect(onlyOld.items.filter((i) => 'unchanged' in i)).toHaveLength(5);
     });
 
     it('docker:up: com restos antigos só avisa (nunca migra sozinho) e conta como instalado', () => {
@@ -289,10 +298,11 @@ describe('mod-install.ts (funções puras)', () => {
         'habblaud: não instalado',
         'habblaud-permissoes: não instalado',
         'habblaud-mensagens: não instalado',
+        'documentos: não instalado',
         '! nome antigo ainda registrado: marketplace codetown (esta pasta), codetown@codetown 0.3.2, codetown-permissoes@codetown 0.3.2; npm run mod:install troca pelo habblaud',
       ]);
       const elsewhere = describeStatus(stateOf([], null, '/h/clone/codetown'), {}, { root: ROOT, version: '0.4.0', home: '/h', sameDir: same });
-      expect(elsewhere[4]).toBe('! nome antigo ainda registrado: marketplace codetown (~/clone/codetown); npm run mod:install troca pelo habblaud');
+      expect(elsewhere[5]).toBe('! nome antigo ainda registrado: marketplace codetown (~/clone/codetown); npm run mod:install troca pelo habblaud');
       expect(describeStatus(stateOf([]), {}, { root: ROOT, version: '0.4.0', home: '/h', sameDir: same }).join('\n')).not.toContain('nome antigo');
     });
 
@@ -388,19 +398,22 @@ describe('mod-install.ts (funções puras)', () => {
       'habblaud: instalado, ligado, versão 0.1.0 (esta pasta: 0.2.0; npm run mod:install ou npm run docker:up atualiza), carrega 0.2.0 de ~/x',
       'habblaud-permissoes: não instalado',
       'habblaud-mensagens: não instalado',
+      'documentos: não instalado',
       '! tap de statusline antigo ainda instalado junto com o mod: npm run mod:install tira (ou npm run usage:uninstall)',
       '! disableAllHooks está ligado no settings.json desta conta: nenhum mod (nem hook) roda',
     ]);
   });
 
   it('parseArgs', () => {
-    expect(parseArgs(['install'])).toEqual({ command: 'install', dryRun: false, permissions: true, messages: true, accounts: [], claudeCmd: undefined });
+    expect(parseArgs(['install'])).toEqual({ command: 'install', dryRun: false, permissions: true, messages: true, documents: false, accounts: [], claudeCmd: undefined });
+    expect(parseArgs(['install', '--com-documentos'])).toMatchObject({ documents: true });
     expect(parseArgs(['install', '--sem-mensagens'])).toMatchObject({ permissions: true, messages: false });
     expect(parseArgs(['install', '--sem-permissoes', '--sem-mensagens', '--conta', '~/.claude-conta2', '--conta', '/x', '--dry-run', '--claude', '/opt/claude'])).toEqual({
       command: 'install',
       dryRun: true,
       permissions: false,
       messages: false,
+      documents: false,
       accounts: ['~/.claude-conta2', '/x'],
       claudeCmd: '/opt/claude',
     });

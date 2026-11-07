@@ -27,6 +27,12 @@
       "source": "./mod/navegador",
       "description": "Navegador do escritório: abrir, ler, clicar e digitar num Chrome local do Habblaud; enviar, pagar, confirmar ou apagar espera a sua aprovação no escritório.",
       "category": "productivity"
+    },
+    {
+      "name": "documentos",
+      "source": "./mod/documentos",
+      "description": "Ler e conferir documentos da pasta do projeto (PDF com texto, xlsx, csv, docx) por um MCP local: valores com a origem, contas refeitas em código, boleto conferido; correções em <nome>-corrigido.<ext>, sem tocar no original.",
+      "category": "productivity"
     }
   ]
 }

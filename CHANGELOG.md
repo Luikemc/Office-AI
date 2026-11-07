@@ -17,6 +17,15 @@ do meio (0.**3**.0).
   vê as próprias abas. Enviar, submeter, pagar, confirmar, apagar ou publicar, toda ação no WhatsApp e downloads
   esperam a sua aprovação no escritório: a sala levanta a mão e o cartão mostra o site, o elemento e o texto exato
   que vai ser digitado. Sem o escritório aberto, a ação é recusada. Instale com `npm run mod:install -- --com-navegador`.
+- **Documentos: o agente lê e confere PDF, planilha e Word da pasta do projeto.** Plugin novo `documentos` (um
+  servidor MCP local, Node puro, sem chave de API): `ler_documento` devolve o texto de cada página do PDF, as células
+  da planilha (`Plan1!B7`, com fórmula e valor guardado), as linhas do CSV e os parágrafos e tabelas do Word, com os
+  valores em R$, datas, CPF/CNPJ e linhas digitáveis achados e o trecho de onde veio cada um; `conferir_planilha`
+  refaz as somas em código e aponta a célula, o valor encontrado, o certo e a diferença; `conferir_boleto` confere os
+  dígitos da linha digitável e compara o valor e o vencimento dela com os impressos; `salvar_correcao` grava
+  `<nome>-corrigido.<ext>` ao lado do original, que nunca é alterado. PDF digitalizado (só imagem) não é lido: ainda
+  não há OCR. No escritório, o monitor do agente mostra documentos e o balão diz “Conferindo a planilha contas.xlsx”.
+  Para instalar: `npm run mod:install -- --com-documentos`.
 
 ## [1.0.3] - 2026-10-16
 
