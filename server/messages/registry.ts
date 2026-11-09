@@ -82,6 +82,11 @@ export interface MessageRegistryOptions {
   demoDeliver?: (agentId: string, text: string) => boolean;
   /** Mensagens aos agentes do Codex; ausente = eles não recebem. */
   codex?: CodexDeliveryOptions;
+  /**
+   * Agentes locais (Ollama, server/local/): a entrega é direta, no próprio servidor (lança se não deu). Ausente = eles
+   * não recebem.
+   */
+  local?: { deliver: (agentId: string, text: string) => void };
   now?: () => number;
   /** Intervalo do relógio interno (start). */
   tickMs?: number;
@@ -152,6 +157,7 @@ const isFinal = (e: Entry) => e.msg.status === 'delivered' || e.msg.status === '
 function unavailableReason(a: AgentInfo, reachable: boolean): string | undefined {
   if (a.kind !== 'main') return tr('subagentes não recebem mensagens: mande para o agente principal');
   if (!present(a)) return tr('o agente já saiu do escritório');
+  if (!reachable && a.provider === 'ollama') return tr('a IA local está desligada neste beta-tester');
   if (!reachable) return a.provider === 'codex' ? ERR_CODEX_UNAVAILABLE : tr('a sessão não está com o plugin habblaud-mensagens conectado (npm run mod:install)');
   return undefined;
 }
@@ -234,12 +240,14 @@ export class MessageRegistry {
     const out = new Set<string>();
     for (const id of this.seen.keys()) if (this.canMessage(id)) out.add(id);
     if (this.codexAvailable()) for (const a of this.opts.office.list()) if (a.provider === 'codex' && a.kind === 'main' && present(a)) out.add(a.id);
+    if (this.opts.local) for (const a of this.opts.office.list()) if (a.provider === 'ollama' && a.kind === 'main' && present(a)) out.add(a.id);
     return out;
   }
 
   canMessage(agentId: string): boolean {
     const a = this.opts.office.get(agentId);
     if (a?.provider === 'codex') return this.codexAvailable() && present(a) && a.kind === 'main';
+    if (a?.provider === 'ollama') return !!this.opts.local && present(a) && a.kind === 'main';
     const at = this.seen.get(agentId);
     if (at === undefined || this.now() - at >= this.presenceMs) return false;
     return present(a) && a.kind === 'main';
@@ -274,6 +282,15 @@ export class MessageRegistry {
     if (demo) entry.demo = true;
     else if (real?.provider === 'codex') entry.codex = true;
     this.messages.set(id, entry);
+    if (real?.provider === 'ollama' && this.opts.local) {
+      // Agente local: entra na fila dele agora mesmo (começa um turno ou espera o atual terminar).
+      try {
+        this.opts.local.deliver(agentId, text);
+        this.finish(entry, 'delivered', now);
+      } catch (err) {
+        this.fail(entry, now, truncate(errMsg(err), ERROR_MAX));
+      }
+    }
     const out = { ...entry.msg };
     if (entry.codex) this.pumpCodex();
     return { message: out };

@@ -7833,6 +7833,41 @@ html.is-replay #world {
   margin-top: 8px;
 }
 
+.ui-spawn__local {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.ui-spawn__model {
+  width: 100%;
+}
+
+.ui-spawn__localtools {
+  display: grid;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.ui-spawn__localtool {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ui-spawn__localtool input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--ui-accent);
+}
+
+.ui-local-ctl {
+  flex-wrap: wrap;
+}
+
 .ui-spawn__tools .ui-btn {
   flex: 1 1 0;
   justify-content: center;

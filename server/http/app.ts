@@ -99,6 +99,8 @@ export interface ApiDeps {
    * (HABBLAUD_BROWSER=0, Docker ou sem a trava do terminal). Só pela porta local, conexão pelo loopback e sem Origin.
    */
   browser?: (req: IncomingMessage, res: ServerResponse, url: URL) => void;
+  /** IA local (/api/local/*, server/local/http.ts): Novo agente › Ollama e Configurações › IA local. Ausente = desligada. */
+  local?: (req: IncomingMessage, res: ServerResponse, url: URL) => void;
 }
 
 /** GET /api/agents/:id/terminal (ids nunca contêm '/'). */
@@ -417,6 +419,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
           messages: !!deps.messages && trusted(req, 'messages'),
           terminal: !!terminals && trusted(req, 'terminal'),
           spawn: !!deps.spawn && trusted(req, 'spawn'),
+          localAi: !!deps.local && !remote && trusted(req) && isLoopbackAddress(req.socket.remoteAddress),
           world: !!deps.world && !!deps.terminal && !remote && isLoopbackHost(req.headers.host),
         };
         sendJson(res, 200, access);
@@ -470,6 +473,21 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
         req.resume();
         sendJson(res, 403, { ok: false, code: 'forbidden', error: denied(req, tr('a configuração do navegador só muda pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
       } else deps.browser(req, res, url);
+      return true;
+    }
+    if (path.startsWith('/api/local/')) {
+      // IA local: o agente age na pasta do projeto e no navegador em seu nome. Só pelo próprio computador: Host local,
+      // conexão pelo loopback e, fora do GET, Origin exatamente desta página (o guard já exigiu JSON).
+      if (!deps.local) {
+        req.resume();
+        sendJson(res, 503, { ok: false, code: 'disabled', error: tr('IA local desligada (HABBLAUD_LOCAL_AI=0, Docker ou beta-tester acessível pela rede)') });
+      } else if (isRemote(req) || !trusted(req) || !isLoopbackAddress(req.socket.remoteAddress) || (!isRead && !sameOrigin(req))) {
+        req.resume();
+        sendJson(res, 403, { ok: false, code: 'forbidden', error: denied(req, tr('a IA local só é usada pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
+      } else if (path === '/api/local/folders') {
+        if (!isRead) methodNotAllowed(res, 'GET');
+        else (deps.spawnFolders ?? (async () => []))().then((folders) => sendJson(res, 200, { folders }), (err) => fail(res, err));
+      } else deps.local(req, res, url);
       return true;
     }
     if (path.startsWith('/api/browser/')) {

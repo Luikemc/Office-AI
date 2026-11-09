@@ -51,7 +51,7 @@ export async function loadAccess(fetchImpl: typeof fetch = fetch, go: (url: stri
     if (res.ok) {
       const body: unknown = await res.json();
       if (isAccessInfo(body)) {
-        const next = { ...body, spawn: (body as { spawn?: unknown }).spawn === true };
+        const next = { ...body, spawn: (body as { spawn?: unknown }).spawn === true, localAi: (body as { localAi?: unknown }).localAi === true };
         const changed = !sameAccess(current, next);
         current = next;
         if (changed) listeners.forEach((cb) => cb());

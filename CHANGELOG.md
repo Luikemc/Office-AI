@@ -50,6 +50,17 @@ do meio (0.**3**.0).
   exatamente volta para o agente perguntar a você; grupos ficam de fora. Uma mensagem por vez, com 20 s entre
   envios. O agente também pode conferir se o WhatsApp está conectado e ler as últimas mensagens de uma conversa.
 
+- **IA local: agentes com o Ollama, sem nuvem e sem chave de API.** O Novo agente ganhou “Quem trabalha: Claude Code
+  ou Ollama (local)”: escolha a pasta, o modelo instalado no Ollama deste computador e as ferramentas — arquivos do
+  projeto (ler e listar; escrever pede aprovação no escritório), documentos (PDF, planilha, Word) e o navegador (as
+  mesmas travas do Claude Code; pede no mínimo 16k de contexto). O agente entra no escritório com o selo “O”, aparece
+  trabalhando, pede aprovação levantando a mão, recebe mensagens pela caixa de sempre e mostra a conversa no terminal
+  ao vivo. No cartão dele, **Interromper** e **Tirar do escritório**. Configurações › IA local escolhe o endereço do
+  Ollama (só deste computador), o modelo padrão, o tamanho do contexto e se o modelo pensa antes de responder. O
+  botão Novo agente aparece com a IA local mesmo sem o terminal interativo. `HABBLAUD_LOCAL_AI=0` desliga. Os
+  agentes locais não voltam depois de reiniciar o beta-tester (a conversa fica gravada em `ia-local/` na pasta de
+  dados).
+
 ### Mudado
 
 - **Porta padrão 4748.** O beta-tester agora abre em http://localhost:4748 para rodar junto com o Habblaud original

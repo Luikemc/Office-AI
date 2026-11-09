@@ -40,6 +40,18 @@ serve só de referência de arquitetura: nenhuma linha de código dele entra aqu
    Navegador escolhe o modo e tira sites (`GET/PUT /api/browser/config`). Classificador por tabela em
    `server/browser/gate.ts` (`classify` + `needsApproval`).
 
+8. IA local com o Ollama (8 nov 2026): `server/local/`. Um agente próprio dentro do servidor (não o Claude Code
+   apontado para o Ollama: o pedido de sistema e as ferramentas do Claude Code passam de 20 mil tokens, que um modelo
+   de 4B na CPU desta máquina — i5-8265U, 7 GB de RAM, sem GPU NVIDIA — leva minutos só para ler). Fala com a API
+   nativa do Ollama (`/api/chat` com ferramentas, streaming); grava o transcript no formato do Claude Code em
+   `<dataDir>/ia-local/`, que passa pelo mesmo parser (atividades, terminal, números). Ferramentas: `files.ts`
+   (listar, ler, escrever com aprovação, presos à pasta) e os MCP dos plugins `documentos` e `navegador` como
+   processos filhos (`mcp.ts`; `HABBLAUD_NAVEGADOR_SESSION` = sessão do agente, então as travas e a sala são as
+   mesmas). Descrições das ferramentas encurtadas e `ver_tela` fora (o modelo não recebe imagens); com o navegador o
+   contexto mínimo é 16k. Rotas `/api/local/*` só pelo próprio computador; mensagens pelo `MessageRegistry`
+   (entrega direta). Provider novo `ollama` (conta "Ollama (local)", sem cartão de uso). Outras IAs (LM Studio,
+   llama.cpp) ficam para depois: o caminho é trocar `ollama.ts` pela API compatível com OpenAI.
+
 ## Notas
 
 - Testes: algumas falhas por timeout de 5s nesta máquina (lenta), variam a cada execução.

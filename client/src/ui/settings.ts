@@ -7,6 +7,7 @@ import { ICONS } from './icons';
 import { notificationState, type Notifier } from './notify';
 import type { UiPrefs } from './prefs';
 import { BrowserSettingsGroup } from './settings-browser';
+import { LocalSettingsGroup } from './settings-local';
 import { SoundSettingsGroup } from './settings-sound';
 import type { SoundControl } from './sound';
 import { AboutGroup } from './version';
@@ -94,6 +95,7 @@ export class SettingsPopover implements UiComponent {
   private soundGroup: SoundSettingsGroup;
   /** Navegador do escritório: modo da trava e sites confiáveis (só pelo próprio computador). */
   private browserGroup: BrowserSettingsGroup;
+  private localGroup: LocalSettingsGroup;
   private demoGroup: HTMLElement;
   /** Só na página do celular (porta remota com login): sair deste aparelho. */
   private remoteGroup: HTMLElement;
@@ -156,6 +158,7 @@ export class SettingsPopover implements UiComponent {
     this.theme.row.append(h('span', { class: 'ui-set__hint', text: tr('Automático: Halloween em outubro e Natal de 1º de novembro a 26 de dezembro; no resto do ano, o visual original. Nenhum: sempre o original.') }));
     this.soundGroup = new SoundSettingsGroup(ctx, sound);
     this.browserGroup = new BrowserSettingsGroup(ctx);
+    this.localGroup = new LocalSettingsGroup(ctx);
 
     // Nomes dos idiomas sempre na própria língua, para quem não entende o idioma atual achar o seu.
     this.language = segmented<LanguageChoice>(
@@ -218,6 +221,7 @@ export class SettingsPopover implements UiComponent {
       ),
       this.soundGroup.el,
       this.browserGroup.el,
+      this.localGroup.el,
       h('div', { class: 'ui-set-group' }, h('h3', { text: tr('Idioma') }), this.language.row),
       this.demoGroup,
       this.remoteGroup,
@@ -229,6 +233,7 @@ export class SettingsPopover implements UiComponent {
       if (this.isOpen) {
         this.render();
         this.browserGroup.render(true);
+        this.localGroup.render(true);
       }
     });
   }
@@ -296,6 +301,7 @@ export class SettingsPopover implements UiComponent {
     this.language.set(savedLanguage());
     this.soundGroup.render();
     this.browserGroup.render();
+    this.localGroup.render();
     setHidden(this.demoGroup, this.ctx.store.mock || access().remote);
     setHidden(this.remoteGroup, !access().remote);
     this.about.render();

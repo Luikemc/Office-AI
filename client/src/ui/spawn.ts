@@ -3,9 +3,13 @@
 // (GET /api/spawn/folders: histórico de sessões + salas), para escolher com um toque; "Outra pasta" aceita um caminho
 // digitado. O pedido pode levar anexos (POST /api/spawn/attachments, um por arquivo, antes do pedido) e ser ditado
 // (ui/dictation.ts, Whisper local no Mac). Pasta que o Claude Code não conhece cai no app (Enter lá).
+// Com a IA local ligada (access().localAi), o painel também começa um agente local com um modelo do Ollama
+// (POST /api/local/agents; server/local/): escolhe o modelo e as ferramentas (arquivos, documentos, navegador).
 import { tr } from '../../../shared/i18n';
 import { isDemoId } from '../../../shared/timeline';
 import type { OfficeSnapshot } from '../../../shared/types';
+import { access } from '../net/access';
+import { segmented } from './settings';
 import type { UiContext } from './context';
 import { DictationButton, dictationAvailable, insertDictation } from './dictation';
 import { h, iconButton, setHidden, setText } from './dom';
@@ -21,6 +25,32 @@ const POLL_MS = 700;
  */
 const WAIT_MS = 90_000;
 const LAST_FOLDER_KEY = 'habblaud.spawn.folder';
+const ENGINE_KEY = 'habblaud.spawn.engine';
+
+export type Engine = 'claude' | 'ollama';
+export type LocalToolGroup = 'arquivos' | 'documentos' | 'navegador';
+
+export interface LocalStatusView {
+  ok: boolean;
+  url: string;
+  version?: string;
+  error?: string;
+  models: Array<{ name: string; size: number; parameters?: string }>;
+  ferramentas: LocalToolGroup[];
+  config: { url: string; modelo: string; contexto: number; pensar: boolean };
+}
+
+export const TOOL_LABELS: Readonly<Record<LocalToolGroup, string>> = {
+  arquivos: tr('Arquivos do projeto (ler; escrever pede aprovação)'),
+  documentos: tr('Documentos (PDF, planilha, Word)'),
+  navegador: tr('Navegador (pede no mínimo 16k de contexto: bem mais memória)'),
+};
+
+export function parseLocalStatus(v: unknown): LocalStatusView | undefined {
+  const r = v as Partial<LocalStatusView> | null;
+  if (!r || typeof r.ok !== 'boolean' || typeof r.url !== 'string' || !Array.isArray(r.models) || !Array.isArray(r.ferramentas) || !r.config) return undefined;
+  return r as LocalStatusView;
+}
 
 interface SpawnInfo {
   id: string;
@@ -131,8 +161,37 @@ export class SpawnPanel {
   private selected = '';
   private typing = false;
   private files: PendingFile[] = [];
+  private engine: Engine = 'claude';
+  private readonly engineSeg: ReturnType<typeof segmented<Engine>>;
+  private readonly localBox: HTMLElement;
+  private readonly modelSelect: HTMLSelectElement;
+  private readonly toolsBox: HTMLElement;
+  private readonly localHint: HTMLElement;
+  private readonly claudeHint: HTMLElement;
+  private readonly attachRow: HTMLElement;
+  private local?: LocalStatusView;
+  private tools = new Set<LocalToolGroup>(['arquivos', 'documentos']);
 
   constructor(private readonly ctx: UiContext) {
+    this.engineSeg = segmented<Engine>(
+      tr('Quem trabalha'),
+      [
+        ['claude', 'Claude Code'],
+        ['ollama', tr('Ollama (local)')],
+      ],
+      (v) => this.setEngine(v),
+    );
+    this.modelSelect = h('select', { class: 'ui-rename__input ui-spawn__model', attrs: { id: 'ui-spawn-model', 'aria-label': tr('Modelo') } });
+    this.toolsBox = h('div', { class: 'ui-spawn__localtools', role: 'group', attrs: { 'aria-label': tr('Ferramentas do agente local') } });
+    this.localHint = h('p', { class: 'ui-rename__hint' });
+    this.localBox = h(
+      'div',
+      { class: 'ui-spawn__local', hidden: true },
+      h('label', { class: 'ui-spawn__label', attrs: { for: 'ui-spawn-model' }, text: tr('Modelo') }),
+      this.modelSelect,
+      h('p', { class: 'ui-spawn__label', text: tr('Ferramentas') }),
+      this.toolsBox,
+    );
     this.folderList = h('div', { class: 'ui-spawn__folders', role: 'radiogroup', attrs: { 'aria-label': tr('Projetos recentes') } });
     this.otherBtn = h('button', { class: 'ui-spawn__other', type: 'button', on: { click: () => this.showOther(true) } }, tr('+ Outra pasta'));
     this.folder = h('input', {
@@ -180,6 +239,11 @@ export class SpawnPanel {
       this.selected = this.folder.value.trim();
       this.renderFolders();
     });
+    this.attachRow = h('div', { class: 'ui-spawn__tools' }, this.dictate.el, attachBtn, this.fileInput);
+    this.claudeHint = h('p', {
+      class: 'ui-rename__hint',
+      text: tr('Começa na hora uma sessão do Claude Code em segundo plano no computador, na pasta escolhida; as permissões chegam aqui. Pasta que o Claude Code ainda não conhece abre no app do Claude e espera o Enter lá. Anexos vão para ~/.habblaud/attachments e o pedido leva os caminhos.'),
+    });
     const close = iconButton(ICONS.close, tr('Fechar'), () => this.hide(), 'ui-icon-btn--sm');
     this.el = h(
       'div',
@@ -188,15 +252,18 @@ export class SpawnPanel {
       h(
         'div',
         { class: 'ui-set-group ui-spawn__body' },
+        this.engineSeg.row,
         h('p', { class: 'ui-spawn__label', attrs: { id: 'ui-spawn-folders-label' }, text: tr('Projeto') }),
         this.folderList,
         this.otherBtn,
         this.folder,
         h('label', { class: 'ui-spawn__label', attrs: { for: 'ui-spawn-prompt' }, text: tr('Pedido') }),
         this.prompt,
-        h('div', { class: 'ui-spawn__tools' }, this.dictate.el, attachBtn, this.fileInput),
+        this.attachRow,
         this.fileList,
-        h('p', { class: 'ui-rename__hint', text: tr('Começa na hora uma sessão do Claude Code em segundo plano no computador, na pasta escolhida; as permissões chegam aqui. Pasta que o Claude Code ainda não conhece abre no app do Claude e espera o Enter lá. Anexos vão para ~/.habblaud/attachments e o pedido leva os caminhos.') }),
+        this.localBox,
+        this.claudeHint,
+        this.localHint,
         this.submitBtn,
         this.status,
       ),
@@ -222,6 +289,8 @@ export class SpawnPanel {
     if (!this.folders.length) this.setFolders(spawnFolders(this.ctx.store.snapshot).map((path) => ({ path, name: path.split(/[\\/]/).pop() || path, lastAt: 0 })));
     void this.loadFolders();
     void this.checkDictation();
+    this.setEngine(this.pickEngine());
+    if (access().localAi) void this.loadLocal();
     if (!this.busy) setText(this.status, '');
     const r = anchor.getBoundingClientRect();
     this.el.style.top = `${Math.round(r.bottom + 8)}px`;
@@ -242,7 +311,7 @@ export class SpawnPanel {
 
   private async loadFolders(): Promise<void> {
     try {
-      const r = await api<{ folders: FolderOption[] }>('/api/spawn/folders');
+      const r = await api<{ folders: FolderOption[] }>(access().spawn ? '/api/spawn/folders' : '/api/local/folders');
       if (Array.isArray(r.folders) && r.folders.length) this.setFolders(r.folders);
     } catch {
       // fica a lista das salas
@@ -347,11 +416,115 @@ export class SpawnPanel {
     this.status.classList.toggle('is-error', error);
   }
 
+  /** O motor lembrado, se ainda estiver disponível; senão o que houver. */
+  private pickEngine(): Engine {
+    const a = access();
+    let pref: string | null = null;
+    try {
+      pref = localStorage.getItem(ENGINE_KEY);
+    } catch {
+      pref = null;
+    }
+    if (pref === 'ollama' && a.localAi) return 'ollama';
+    if (pref === 'claude' && a.spawn) return 'claude';
+    return a.spawn ? 'claude' : 'ollama';
+  }
+
+  private setEngine(v: Engine): void {
+    const a = access();
+    if (v === 'ollama' && !a.localAi) v = 'claude';
+    if (v === 'claude' && !a.spawn) v = 'ollama';
+    this.engine = v;
+    try {
+      localStorage.setItem(ENGINE_KEY, v);
+    } catch {
+      // sem armazenamento: só não lembra
+    }
+    this.engineSeg.set(v);
+    setHidden(this.engineSeg.row, !(a.spawn && a.localAi));
+    const local = v === 'ollama';
+    setHidden(this.localBox, !local);
+    setHidden(this.localHint, !local);
+    setHidden(this.claudeHint, local);
+    setHidden(this.attachRow.querySelector('.ui-spawn__attach') as HTMLElement, local);
+    if (local) this.clearFiles();
+    this.renderLocal();
+  }
+
+  private async loadLocal(): Promise<void> {
+    try {
+      this.local = parseLocalStatus(await api<unknown>('/api/local/status'));
+    } catch (err) {
+      this.local = undefined;
+      setText(this.localHint, tr('A IA local não respondeu: {0}', [(err as Error).message]));
+    }
+    this.renderLocal();
+  }
+
+  private renderLocal(): void {
+    const st = this.local;
+    if (!st) {
+      this.modelSelect.replaceChildren(h('option', { text: tr('Carregando…'), attrs: { value: '' } }));
+      this.toolsBox.replaceChildren();
+      return;
+    }
+    if (!st.ok || !st.models.length) {
+      this.modelSelect.replaceChildren(h('option', { text: st.ok ? tr('Nenhum modelo instalado') : tr('Ollama fora do ar'), attrs: { value: '' } }));
+      setText(this.localHint, st.ok ? tr('Instale um modelo no terminal (ex.: ollama pull qwen3:4b) e abra este painel de novo.') : tr('O Ollama não respondeu em {0}: {1}. Rode `ollama serve` e abra este painel de novo.', [st.url, st.error ?? '']));
+    } else {
+      const keep = this.modelSelect.value || st.config.modelo || st.models[0].name;
+      this.modelSelect.replaceChildren(
+        ...st.models.map((m) =>
+          h('option', { text: `${m.name}${m.parameters ? ` · ${m.parameters}` : ''} · ${formatBytes(m.size)}`, attrs: { value: m.name, ...(m.name === keep ? { selected: 'selected' } : {}) } }),
+        ),
+      );
+      if (st.models.some((m) => m.name === keep)) this.modelSelect.value = keep;
+      setText(this.localHint, tr('Roda no computador com o Ollama {0}, sem nuvem e sem chave de API. Na CPU cada resposta pode levar minutos. Escrever arquivos e as ações arriscadas do navegador pedem aprovação aqui.', [st.version ?? '']));
+    }
+    for (const g of [...this.tools]) if (!st.ferramentas.includes(g)) this.tools.delete(g);
+    this.toolsBox.replaceChildren(
+      ...st.ferramentas.map((g) => {
+        const box = h('input', { type: 'checkbox', attrs: { value: g } });
+        box.checked = this.tools.has(g);
+        box.addEventListener('change', () => {
+          if (box.checked) this.tools.add(g);
+          else this.tools.delete(g);
+        });
+        return h('label', { class: 'ui-spawn__localtool' }, box, h('span', { text: TOOL_LABELS[g] }));
+      }),
+    );
+  }
+
+  private async submitLocal(folder: string): Promise<void> {
+    const model = this.modelSelect.value;
+    if (!model) return this.say(tr('Escolha um modelo instalado no Ollama.'), true);
+    this.busy = true;
+    this.submitBtn.disabled = true;
+    try {
+      this.say(tr('Começando o agente local…'));
+      await api<{ agent: { id: string } }>('/api/local/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder, prompt: this.prompt.value, model, ferramentas: [...this.tools] }),
+      });
+      this.say(tr('Rodando: o agente local já está no escritório. A primeira resposta pode demorar enquanto o modelo carrega.'));
+      this.prompt.value = '';
+      writePref(folder);
+      this.ctx.announce(tr('Agente local novo rodando.'));
+    } catch (err) {
+      this.say(tr('Não abriu: {0}', [(err as Error).message]), true);
+    } finally {
+      this.busy = false;
+      this.submitBtn.disabled = false;
+    }
+  }
+
   private async submit(): Promise<void> {
     if (this.busy) return;
     if (this.dictate.busy) return this.say(tr('Espere o ditado terminar.'), true);
     const folder = (this.typing ? this.folder.value : this.selected).trim();
     if (!folder) return this.say(tr('Escolha o projeto.'), true);
+    if (this.engine === 'ollama') return this.submitLocal(folder);
     this.busy = true;
     this.submitBtn.disabled = true;
     try {

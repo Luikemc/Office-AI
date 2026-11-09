@@ -39,9 +39,10 @@ import {
   visibleShells,
 } from './model';
 import { access } from '../net/access';
+import { LocalAgentControls } from './local-controls';
 import { PermissionCard } from './permission';
 import { canRenameRoom } from './roomrename';
-import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, providerOf } from './provider';
+import { accountChipLabel, accountProvider, CODEX_LIVE_HINT, codexApprovalLabel, PROVIDER_NAME, providerOf } from './provider';
 import { ptyControllable } from './ptyapi';
 import { createAgentRow, updateAgentRow } from './rows';
 import { SocialSection } from './social';
@@ -264,6 +265,7 @@ class AgentView {
   private linesPlus: HTMLElement;
   private linesMinus: HTMLElement;
   private termRo: HTMLElement;
+  private localCtl: LocalAgentControls;
 
   constructor(
     private ctx: UiContext,
@@ -299,6 +301,7 @@ class AgentView {
     const centerBtn = h('button', { class: 'ui-btn', type: 'button', title: tr('Levar a câmera até o agente'), on: { click: () => ctx.focusSelection() } });
     centerBtn.innerHTML = ICONS.center;
     centerBtn.append(h('span', { text: tr('Centralizar') }));
+    this.localCtl = new LocalAgentControls(ctx);
     const statusRow = h(
       'div',
       { class: 'ui-status' },
@@ -411,6 +414,7 @@ class AgentView {
       this.title,
       this.gone,
       statusRow,
+      this.localCtl.el,
       this.termBtn,
       this.termWhy,
       this.alert,
@@ -542,6 +546,7 @@ class AgentView {
     setHidden(this.title, !a.title);
     setTitle(this.title, a.title ?? '');
     updateAccountChip(this.accChip, account, a.account, a.provider);
+    this.localCtl.render(a, !!live);
     setText(this.accName, account?.name ?? a.account);
     updateProviderTag(this.accProv, provider, account?.name ?? '');
     // E-mail (Claude Code) ou, no Codex (sem e-mail), o plano.
@@ -720,7 +725,7 @@ class AgentView {
             ? tr('O agente já saiu do escritório.')
             : kind === 'ao vivo'
               ? tr('Ver a conversa desta sessão como no {0}, ao vivo{1} (T)', [
-                  provider === 'codex' ? 'Codex' : tr('terminal do Claude Code'),
+                  provider === 'claude' ? tr('terminal do Claude Code') : PROVIDER_NAME[provider],
                   this.pty.enabled && ptyControllable(this.last) ? tr('; "Assumir daqui" continua nela aqui') : '',
                 ])
               : kind === 'interativo'

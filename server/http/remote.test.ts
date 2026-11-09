@@ -166,6 +166,7 @@ interface Harness {
   permissionCalls: string[];
   ptyCalls: string[];
   worldCalls: string[];
+  localCalls: string[];
   spawn: SpawnService;
   close: () => Promise<void>;
 }
@@ -199,6 +200,7 @@ async function start(allow: RemoteFeature[] = ['permissions']): Promise<Harness>
   const permissionCalls: string[] = [];
   const ptyCalls: string[] = [];
   const worldCalls: string[] = [];
+  const localCalls: string[] = [];
   const spawn = new SpawnService();
   const api = createApiHandler({
     office,
@@ -225,6 +227,11 @@ async function start(allow: RemoteFeature[] = ['permissions']): Promise<Harness>
     },
     renameRoom: () => 'sala',
     remote: { is: isRemoteRequest, allows: (f) => allowSet.has(f) },
+    local: (req, res, url) => {
+      req.resume();
+      localCalls.push(`${req.method} ${url.pathname}`);
+      sendJson(res, 200, { ok: true });
+    },
     world: (req, res, url) => {
       req.resume();
       worldCalls.push(`${req.method} ${url.pathname}`);
@@ -264,6 +271,7 @@ async function start(allow: RemoteFeature[] = ['permissions']): Promise<Harness>
     permissionCalls,
     ptyCalls,
     worldCalls,
+    localCalls,
     spawn,
     close,
   };
@@ -584,9 +592,10 @@ describe('GET /api/access (o que a página pode fazer)', () => {
       messages: false,
       terminal: false,
       spawn: false,
+      localAi: false,
       world: false,
     });
-    expect(JSON.parse((await request(h.localBase, '/api/access')).body)).toEqual({ remote: false, local: true, permissions: true, messages: true, terminal: false, spawn: true, world: true });
+    expect(JSON.parse((await request(h.localBase, '/api/access')).body)).toEqual({ remote: false, local: true, permissions: true, messages: true, terminal: false, spawn: true, localAi: true, world: true });
     expect(JSON.parse((await request(h.localBase, '/api/access', { headers: { Host: '192.168.1.5:4747' } })).body)).toMatchObject({
       local: false,
       permissions: false,
@@ -595,6 +604,18 @@ describe('GET /api/access (o que a página pode fazer)', () => {
       world: false,
     });
     expect((await request(h.remoteBase, '/api/access')).status).toBe(401);
+  });
+
+  it('IA local: só pela porta local com Host local; a remota recusa mesmo com login', async () => {
+    const h = await start(['permissions', 'messages', 'terminal', 'spawn']);
+    const cookie = await login(h.remoteBase);
+    expect((await request(h.remoteBase, '/api/local/status', { headers: { Cookie: cookie, Host: 'localhost' } })).status).toBe(403);
+    expect((await request(h.localBase, '/api/local/status', { headers: { Host: '192.168.1.5:4747' } })).status).toBe(403);
+    expect((await request(h.localBase, '/api/local/status')).status).toBe(200);
+    // POST de outra origem: o guard recusa antes.
+    const cross = await request(h.localBase, '/api/local/agents', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'http://evil.example' }, body: {} });
+    expect(cross.status).toBe(403);
+    expect(h.localCalls).toEqual(['GET /api/local/status']);
   });
 });
 

@@ -41,6 +41,10 @@ import { ClaudeWatcher } from './sources/watcher';
 import { discoverCodexDirs } from './sources/codex/accounts';
 import { CodexHistory } from './sources/codex/history';
 import { CodexSource } from './sources/codex/source';
+import { registryApprove } from './local/approve';
+import { LocalConfigStore } from './local/config';
+import { createLocalRoutes } from './local/http';
+import { LocalSource } from './local/source';
 import { createBuildReader, readBuildInfo } from './build';
 import { UpdateChecker } from './updates/checker';
 import { getLocale, tr } from '../shared/i18n';
@@ -83,7 +87,7 @@ const roomAliases = new RoomAliases(join(config.dataDir, 'rooms.json'));
 roomAliases.load();
 
 // Office, contas e fontes de agentes se referenciam (avisos de mudança / fontes): ligação tardia.
-const late: { office?: Office; agents?: SourceSet; permissions?: PermissionRegistry; messages?: MessageRegistry; ptys?: PtyManager; ptyOff?: string } = {};
+const late: { office?: Office; agents?: SourceSet; local?: LocalSource; browserOn?: boolean; permissions?: PermissionRegistry; messages?: MessageRegistry; ptys?: PtyManager; ptyOff?: string } = {};
 // Versão nova: consulta a release mais recente no GitHub a cada 6 h (HABBLAUD_UPDATE_CHECK=0 desliga).
 const updates = new UpdateChecker({
   current: config.version,
@@ -124,7 +128,7 @@ const office = new Office({
   // No modo dev o Vite serve o cliente direto do código-fonte: não há build para comparar.
   build: config.dev ? undefined : createBuildReader(config.rootDir),
   startedAt,
-  accounts: (sessions) => accounts.list(sessions),
+  accounts: (sessions) => [...accounts.list(sessions), ...(late.local?.accounts(sessions) ?? [])],
   sources: () => late.agents?.sources() ?? [],
   accountName: (id) => accounts.find(id)?.detected.name,
   terminal: config.terminal,
@@ -142,6 +146,24 @@ const agents = new SourceSet([claude]);
 const codexDirs = config.codex ? discoverCodexDirs(process.env, config.home) : [];
 const codex = codexDirs.length ? new CodexSource({ accounts, office, dirs: codexDirs, env: process.env, home: config.home }) : undefined;
 if (codex) agents.add(codex);
+// IA local (server/local/): agentes que o próprio servidor roda com um modelo do Ollama deste computador (sem chave de
+// API). Fora do Docker; HABBLAUD_LOCAL_AI=0 desliga. Escrever arquivos pede aprovação pelo registro de permissões e o
+// navegador, quando ligado, é o mesmo do plugin (as travas são as mesmas). Configurações › IA local muda o modelo.
+const localConfig = !config.inDocker && process.env.HABBLAUD_LOCAL_AI?.trim() !== '0' ? new LocalConfigStore(join(config.dataDir, 'ia-local.json')) : undefined;
+const local = localConfig
+  ? new LocalSource({
+      office,
+      config: localConfig,
+      dir: join(config.dataDir, 'ia-local'),
+      rootDir: config.rootDir,
+      port: config.port,
+      // As duas são criadas mais abaixo: só são lidas quando um agente local começa.
+      approve: (sessionId) => (late.permissions ? registryApprove(late.permissions, config.port, sessionId) : async () => ({ ok: false, message: tr('aprovação pelo escritório desligada neste beta-tester: nada foi gravado') })),
+      browser: () => late.browserOn === true,
+    })
+  : undefined;
+if (local) agents.add(local);
+late.local = local;
 // Eventos dos hooks do Codex (POST /api/codex/events, mod/habblaud-codex/hook.mjs): vão para a fonte do Codex ao vivo
 // (CodexLive); sem ela (nenhuma pasta do Codex ou HABBLAUD_CODEX=0) a rota responde {ok: false}.
 const codexLive: CodexLive | undefined = codex;
@@ -267,6 +289,7 @@ const browser =
         },
       })
     : undefined;
+late.browserOn = !!browser;
 // Mensagens pelo escritório (plugin habblaud-mensagens): entram na sessão como se você as tivesse digitado, então
 // seguem a mesma trava (e HABBLAUD_MENSAGENS=0 desliga só elas). Ao Codex vão por `codex queue` (messages/codex.ts):
 // fora do Docker o próprio servidor roda o comando (HABBLAUD_CODEX_BIN ou `codex` do PATH); no Docker, o auxiliar do
@@ -298,6 +321,7 @@ const messages = config.messages
         run: codexBin ? createCodexQueueRunner(codexBin) : undefined,
         homeOf: (account) => accounts.entriesOf('codex').find((e) => e.id === account)?.detected.configDir,
       },
+      local: local ? { deliver: (agentId, text) => local.send(agentId, text) } : undefined,
     })
   : undefined;
 late.messages = messages;
@@ -382,6 +406,7 @@ const api = createApiHandler({
   timeline: createTimelineHandler({ dir: timelineDir, recording: !!timeline }),
   permissions: permissions ? createPermissionRoutes(permissions) : undefined,
   browser: browser ? createBrowserRoutes(browser) : undefined,
+  local: local && localConfig ? createLocalRoutes(local, localConfig) : undefined,
   messages: messages ? createMessageRoutes(messages) : undefined,
   pty: ptys ? createPtyRoutes(ptys) : undefined,
   spawn,
