@@ -14,7 +14,7 @@ import type { Selection, WorldApi } from '../world/api';
 import type { PanelName, TerminalRouter, UiComponent, UiContext } from './context';
 import { DayLauncher } from './daystats-launcher';
 import { RoomRenamer } from './roomrename';
-import { h } from './dom';
+import { h, setHidden } from './dom';
 import { Drawer } from './drawer';
 import { FeedPanel } from './feed';
 import { HelpDialog } from './help';
@@ -35,6 +35,7 @@ import { PtyPanel } from './pty';
 import { TimelapsePlayer } from './timelapse';
 import { Toasts } from './toasts';
 import { UpdateToaster } from './version';
+import { BrowserStage } from './browser-stage';
 import { TopBar } from './topbar';
 import { UpdateBanner } from './update';
 import { WorldPopups } from './world/world-popups';
@@ -97,6 +98,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
       prefs = { ...prefs, ...patch };
       savePrefs(storage, prefs);
       world.setOptions(worldOptionsFrom(prefs));
+      applyLayout();
       invalidate();
     },
     now: () => timelapse?.replayTime ?? Date.now() + skew,
@@ -140,6 +142,8 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
     },
     invalidate: () => invalidate(),
     togglePanel(name, open) {
+      // Sem o escritório, a lista e a atividade são a página: não recolhem.
+      if (!prefs.office && !ctx.isNarrow()) return;
       const next = open ?? !panels[name];
       if (panels[name] === next) return;
       panels[name] = next;
@@ -173,6 +177,9 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   const sound = new SoundControl(ctx);
   const notifier = new Notifier(ctx, sound.board);
   topbar = new TopBar(ctx);
+  const browserStage = new BrowserStage(ctx);
+  ctx.root.append(browserStage.el);
+  topbar.panelGroup.insertBefore(browserStage.button, topbar.settingsBtn);
   sidebar = new Sidebar(ctx);
   // Terminal interativo (Claude Code de verdade, dentro do navegador): abrir, assumir e encerrar sessões.
   const pty = new PtyPanel(ctx);
@@ -187,6 +194,9 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
     get openAgentId() {
       return pty.isOpen ? pty.agentId : terminal.agentId;
     },
+    get docked() {
+      return terminal.isDocked;
+    },
     get available() {
       return pty.enabled || (!!store.snapshot?.meta.terminal && !store.replaying);
     },
@@ -196,6 +206,12 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
     },
     newSession: (cwd, account) => pty.newSession(cwd, account),
     open(id, opener) {
+      if (terminal.isDocked) {
+        pty.close();
+        if (selection?.type === 'agent' && selection.id === id) terminal.focus();
+        else ctx.select({ type: 'agent', id });
+        return;
+      }
       const readOnly = !!store.snapshot?.meta.terminal && !store.replaying;
       if (pty.ptyOf(id) || (pty.enabled && !readOnly && ctx.agent(id)?.kind === 'main')) pty.openAgent(id);
       else {
@@ -204,6 +220,11 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
       }
     },
     toggle(id, opener) {
+      if (terminal.isDocked) {
+        if (terminal.agentId === id) return terminal.focus();
+        ctx.select({ type: 'agent', id });
+        return;
+      }
       if (router.openAgentId === id) {
         pty.close();
         terminal.close();
@@ -286,9 +307,10 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   const splash = new Splash(ctx);
   timelapse = new TimelapsePlayer(ctx);
   const scrim = h('div', { class: 'ui-scrim', attrs: { 'aria-hidden': 'true' }, on: { click: () => ctx.togglePanel('sidebar', false) } });
+  const stage = h('div', { class: 'ui-panel ui-plain-stage', hidden: true }, h('p', { class: 'ui-plain-stage__text', text: tr('Escolha um agente na lista para escrever ou ditar.') }));
 
   root.classList.add('ui-root');
-  root.append(timelapse.vignette, topbar.el, sidebar.el, scrim, feed.el, drawer.el, terminal.el, pty.el, timelapse.el, timelapse.badge, toasts.el, banner.el, update.el, empty.el, popups.el, tip.el, settings.el, worldDialog.el, history.el, deliveries.el, help.el, renamer.el, live, splash.el);
+  root.append(timelapse.vignette, topbar.el, sidebar.el, scrim, stage, feed.el, drawer.el, terminal.el, pty.el, timelapse.el, timelapse.badge, toasts.el, banner.el, update.el, empty.el, popups.el, tip.el, settings.el, worldDialog.el, history.el, deliveries.el, help.el, renamer.el, live, splash.el);
   area = new FreeArea(world, { root, topbar: topbar.el, sidebar: sidebar.el, drawer: drawer.el, feed: feed.el }, () => ({
     sidebar: panels.sidebar,
     feed: panels.feed,
@@ -332,10 +354,27 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
 
   /** Aplica as classes de layout e informa ao mundo a área livre (sem esperar as transições dos painéis). */
   function applyLayout(opts: { refocus?: boolean } = {}): void {
+    const plain = !prefs.office;
+    const wide = !ctx.isNarrow();
+    if (wide) {
+      if (plain) {
+        panels.sidebar = true;
+        panels.feed = true;
+      } else {
+        panels.sidebar = prefs.sidebarOpen;
+        panels.feed = prefs.feedOpen;
+      }
+    }
+    root.classList.toggle('is-plain', plain);
     root.classList.toggle('has-sidebar', panels.sidebar);
     root.classList.toggle('has-feed', panels.feed);
     root.classList.toggle('has-drawer', selection !== null && !drawer.floating);
     root.classList.toggle('is-narrow', ctx.isNarrow());
+    syncPlainTerminal();
+    const canvas = document.getElementById('world');
+    if (canvas) canvas.hidden = plain;
+    setHidden(stage, !(plain && wide && selection === null));
+    if (plain && inCity()) scene?.close();
     area.sync(opts);
   }
 
@@ -344,6 +383,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
     // Ao vivo, o "agora" da interface segue o relógio do servidor (o aparelho pode estar adiantado ou atrasado).
     // No timelapse, quem manda é o instante reproduzido pelo player (parado quando pausado).
     if (store.connection === 'open' && !store.replaying) skew = snap.serverTime - Date.now();
+    syncPlainTerminal();
     invalidate();
   });
   store.on('connection', () => invalidate());
@@ -385,7 +425,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
     // Na cidade os atalhos do escritório ficam desligados: Esc fecha o cartão aberto ou volta ao escritório.
     if (inCity()) {
       if (e.key === 'Escape') {
-        if (help.isOpen || settings.isOpen || worldDialog.isOpen || history.isOpen || document.querySelector('dialog[open], :not(dialog)[aria-modal="true"]')) return;
+        if (help.isOpen || settings.isOpen || worldDialog.isOpen || history.isOpen || browserStage.isOpen || document.querySelector('dialog[open], :not(dialog)[aria-modal="true"]')) return;
         e.preventDefault();
         if (!city?.escape()) scene?.close();
       } else if (e.key === '?' && !isTypingTarget(e.target) && !help.isOpen) {
@@ -395,10 +435,9 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
       return;
     }
     if (e.key === 'Escape') {
-      if (help.isOpen || settings.isOpen || worldDialog.isOpen || history.isOpen) return; // diálogo/popover tratam o próprio Esc
-      // O terminal flutua sobre tudo: fecha primeiro (a busca dele, depois ele; a gaveta continua aberta).
-      if (terminal.isOpen) {
-        terminal.escape();
+      if (help.isOpen || settings.isOpen || worldDialog.isOpen || history.isOpen || browserStage.isOpen) return; // diálogo/popover tratam o próprio Esc
+      // Janela solta: fecha primeiro (a busca, depois ela). Encaixado no meio, o Esc só fecha a busca; o seguinte tira a seleção.
+      if (terminal.isOpen && terminal.escape()) {
         e.preventDefault();
       } else if (ctx.isNarrow() && panels.sidebar) {
         ctx.togglePanel('sidebar', false);
@@ -409,7 +448,7 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
       }
       return;
     }
-    if (isTypingTarget(e.target) || help.isOpen || worldDialog.isOpen) return;
+    if (isTypingTarget(e.target) || help.isOpen || worldDialog.isOpen || browserStage.isOpen) return;
     switch (e.key) {
       case '/':
         e.preventDefault();
@@ -469,8 +508,24 @@ export function createUI(root: HTMLElement, store: OfficeStore, world: WorldApi,
   /**
    * Atalho T: abre a janela de terminal do agente selecionado (ver `router`) ou fecha a que estiver aberta.
    */
+  /** Sem o jogo na página (e com a tela larga), a conversa do agente fica no meio, no lugar da mensagem. */
+  function syncPlainTerminal(): void {
+    const dock = !prefs.office && !ctx.isNarrow() && selection?.type === 'agent' && !!store.snapshot?.meta.terminal && access().terminal;
+    if (dock && selection?.type === 'agent') {
+      drawer.setTerminalDock(true);
+      terminal.dock(drawer.termSlot);
+      if (terminal.agentId !== selection.id) terminal.open(selection.id);
+      return;
+    }
+    const was = terminal.isDocked;
+    if (was) terminal.close(false);
+    drawer.setTerminalDock(false);
+    terminal.dock(null);
+  }
+
   function toggleTerminal(): void {
     const id = selection?.type === 'agent' ? selection.id : null;
+    if (terminal.isDocked && id && terminal.agentId === id) return terminal.focus();
     if (id !== null && pty.enabled && ctx.agent(id)?.kind === 'main') return router.toggle(id);
     if (id === null && pty.isOpen) return pty.close();
     if (terminal.isOpen && (id === null || terminal.agentId === id)) terminal.close();

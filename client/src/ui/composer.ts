@@ -161,6 +161,7 @@ export class MessageComposer {
     });
     // Transcrevendo: o botão fica até o texto chegar (ele vai para o rascunho de quem ditou).
     setHidden(this.dictate.el, !this.canDictate || (!ready && !this.dictate.busy));
+    this.dictate.setCompact(this.ctx.prefs.office);
     // Na gaveta, a dica do plugin entra no lugar da caixa; no terminal ela já está no lugar do texto.
     setHidden(this.row, !term && !ready);
     if (this.tip) {
@@ -231,9 +232,13 @@ export class MessageComposer {
     this.sendBtn.disabled = this.mode.kind !== 'ready' || !canSend(this.box.value) || this.states.get(this.agentId)?.phase === 'sending';
   }
 
-  /** Cresce com o texto até o limite do CSS (~6 linhas; depois rola). Escondida, mede quando aparecer. */
+  /** Cresce com o texto até o limite do CSS (~6 linhas; depois rola). Escondida, mede quando aparecer. No meio da página, a caixa ocupa o vão. */
   private resize(): void {
     const box = this.box;
+    if (this.variant === 'drawer' && !this.ctx.prefs.office) {
+      box.style.height = '';
+      return;
+    }
     if (!box.isConnected || box.offsetParent === null) return;
     box.style.height = 'auto';
     box.style.height = `${box.scrollHeight + box.offsetHeight - box.clientHeight}px`;

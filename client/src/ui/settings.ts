@@ -208,6 +208,7 @@ export class SettingsPopover implements UiComponent {
         'div',
         { class: 'ui-set-group' },
         h('h3', { text: tr('Escritório') }),
+        sw('office', tr('Escritório em pixel art'), tr('Desligado, o meio da página é o terminal do agente escolhido na lista e a atividade fica embaixo. O ditado fica nessa conversa quando o computador transcreve.'), flip('office')),
         sw('showNames', tr('Mostrar nomes'), tr('Etiqueta com o nome acima de cada personagem.'), flip('showNames')),
         this.bubbles.row,
         this.liveliness.row,

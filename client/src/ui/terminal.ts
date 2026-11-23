@@ -656,6 +656,8 @@ export class TerminalPanel implements UiComponent, TerminalControl {
   private movable: Movable;
   /** Caixa de mensagem do rodapé (só a sessão ao vivo de um agente principal). */
   private composer: MessageComposer;
+  /** Encaixado no meio da página (sem o escritório em pixel art), em vez de janela solta. */
+  private docked = false;
 
   constructor(
     private ctx: UiContext,
@@ -759,7 +761,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     );
     this.el.addEventListener('keydown', (e) => this.onKey(e));
     // Arrastar pela barra solta a janela (ui/movable.ts).
-    this.movable = new Movable(this.el, bar, { key: 'habblaud.move.term', enabled: () => !ctx.isNarrow() });
+    this.movable = new Movable(this.el, bar, { key: 'habblaud.move.term', enabled: () => !this.docked && !ctx.isNarrow() });
     this.renderFilter();
     // Janela redimensionada: quem está no fim continua vendo o fim.
     if (typeof ResizeObserver === 'function') new ResizeObserver(() => this.follow && this.scrollToEnd()).observe(this.scroll);
@@ -773,6 +775,31 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     return this.id !== null;
   }
 
+  /** No meio da página, no lugar da caixa de mensagem (sem o escritório em pixel art). */
+  get isDocked(): boolean {
+    return this.docked;
+  }
+
+  /** Encaixa no `host` (o miolo da gaveta) ou devolve para a janela solta (`host` nulo). */
+  dock(host: HTMLElement | null): void {
+    const next = !!host;
+    if (next === this.docked && (!host || this.el.parentElement === host)) return;
+    this.docked = next;
+    this.el.classList.toggle('is-docked', next);
+    setAttr(this.el, 'role', next ? 'region' : 'dialog');
+    if (host) {
+      this.movable.park();
+      host.append(this.el);
+    } else {
+      this.ctx.root.append(this.el);
+      if (!this.el.hidden) this.movable.restore();
+    }
+  }
+
+  focus(): void {
+    this.focusLog();
+  }
+
   open(agentId: string, opener: HTMLElement | null = activeElement()): void {
     this.start(agentId, null, opener);
   }
@@ -783,8 +810,10 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.start(sessionKey(session.account, session.sessionId), session, opener);
   }
 
-  close(): void {
+  close(backToAgent = true): void {
     if (this.id === null) return;
+    const back = backToAgent && this.docked && this.session ? this.ctx.selection() : null;
+    const agentId = back?.type === 'agent' ? back.id : null;
     this.disconnect();
     this.stopSpinner();
     this.closeSearch(false);
@@ -796,8 +825,9 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.clear();
     const opener = this.opener;
     this.opener = null;
-    if (hadFocus && opener?.isConnected) opener.focus({ preventScroll: true });
+    if (hadFocus && opener?.isConnected && !agentId) opener.focus({ preventScroll: true });
     this.ctx.invalidate();
+    if (agentId) this.open(agentId);
   }
 
   toggle(agentId: string, opener: HTMLElement | null = activeElement()): void {
@@ -805,11 +835,18 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     else this.open(agentId, opener);
   }
 
-  /** Esc: o primeiro fecha a busca; o seguinte, o terminal. Devolve false se não havia nada aberto. */
+  /**
+   * Esc: o primeiro fecha a busca; o seguinte, a janela. Encaixado no meio, o segundo Esc não fecha
+   * (a conversa fica no lugar da mensagem; quem trata é a página, que tira a seleção). Devolve false se não consumiu.
+   */
   escape(): boolean {
     if (this.id === null) return false;
-    if (this.searchOpen) this.closeSearch(this.el.contains(document.activeElement));
-    else this.close();
+    if (this.searchOpen) {
+      this.closeSearch(this.el.contains(document.activeElement));
+      return true;
+    }
+    if (this.docked) return false;
+    this.close();
     return true;
   }
 
@@ -844,7 +881,7 @@ export class TerminalPanel implements UiComponent, TerminalControl {
     this.follow = true;
     this.unread = 0;
     this.lastEntryAt = 0;
-    if (this.el.hidden) this.movable.restore();
+    if (this.el.hidden && !this.docked) this.movable.restore();
     this.el.hidden = false;
     this.el.classList.toggle('is-session', !!session);
     this.connect();
@@ -908,9 +945,9 @@ export class TerminalPanel implements UiComponent, TerminalControl {
       return;
     }
     if (e.key !== 'Escape' || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!this.escape()) return;
     e.preventDefault();
     e.stopPropagation();
-    this.escape();
   }
 
   // ---------------------------------------------------------------- stream

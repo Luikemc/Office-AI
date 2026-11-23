@@ -222,6 +222,8 @@ export class PermissionCard {
   /** Perguntas do AskUserQuestion, montadas uma vez por pedido (a seleção sobrevive aos snapshots). */
   private askForm: HTMLFormElement;
   private askId = '';
+  /** Pedido de ajuda no navegador que já abriu o quadro (uma vez por id). */
+  private helpOpened = '';
   private askRefs: AskRefs[] = [];
   private answerBtn: HTMLButtonElement;
 
@@ -326,6 +328,10 @@ export class PermissionCard {
       return;
     }
     if (p.id !== this.id || agent.id !== this.agentId) this.reset(p.id, agent.id);
+    if (p.tool === 'mcp__navegador__pedir_ajuda' && this.helpOpened !== p.id) {
+      this.helpOpened = p.id;
+      this.ctx.root.dispatchEvent(new CustomEvent('habblaud-browser'));
+    }
     setHidden(this.el, false);
     const now = this.ctx.now();
     const opts = (this.opts = permissionOptions(p, agent));
@@ -383,7 +389,7 @@ export class PermissionCard {
     setHidden(this.trustBtn, !site);
     if (site) {
       setText(this.trustBtn, tr('✓ Permitir e confiar neste site'));
-      setTitle(this.trustBtn, tr('Aprova agora e marca {0} como site confiável: ali o navegador age sem pedir, menos pagamentos (Configurações › Navegador desfaz)', [site]));
+      setTitle(this.trustBtn, tr('Aprova agora e marca {0} como site confiável: ali o navegador age sem pedir (Configurações › Navegador desfaz)', [site]));
     }
     for (const b of [this.approveBtn, this.trustBtn, this.denyBtn, this.terminalBtn]) b.disabled = busy;
     for (const el of this.askForm.querySelectorAll('input')) el.disabled = busy;

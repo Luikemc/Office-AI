@@ -111,6 +111,16 @@ export class Movable {
     }
   }
 
+  /** Tira da posição flutuante sem esquecer a posição guardada (o painel foi encaixado em outro lugar). */
+  park(): void {
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    this.box = null;
+    this.max = false;
+    this.el.classList.remove('is-floating', 'is-max', 'is-dragging', 'is-resizing');
+    for (const p of ['left', 'top', 'width', 'height', 'right', 'bottom']) this.el.style.removeProperty(p);
+  }
+
   /** Volta ao lugar padrão (e esquece a posição guardada). */
   dock(): void {
     if (!this.box) return;

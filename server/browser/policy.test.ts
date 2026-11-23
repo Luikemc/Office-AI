@@ -154,6 +154,7 @@ describe('classify: palavras', () => {
       { kind: 'tecla', url: 'https://web.whatsapp.com/', key: 'ArrowDown', element: chat },
     ] as const) {
       expect(classify(a), a.kind).toBe('whatsapp');
+      expect(judge(a, { mode: 'cauteloso', trusted: false }).reason, a.kind).toBeUndefined();
     }
   });
 });
@@ -161,9 +162,9 @@ describe('classify: palavras', () => {
 describe('needsApproval: modos × site confiável × categorias', () => {
   const cats: GateCategory[] = ['dinheiro', 'destrutivo', 'mensagem', 'upload', 'envio', 'download', 'whatsapp'];
   const expected: Record<string, GateCategory[]> = {
-    cauteloso: cats,
-    equilibrado: ['dinheiro', 'destrutivo', 'mensagem', 'upload', 'whatsapp'],
-    livre: ['dinheiro', 'whatsapp'],
+    cauteloso: cats.filter((c) => c !== 'whatsapp'),
+    equilibrado: ['dinheiro', 'destrutivo', 'mensagem', 'upload'],
+    livre: [],
   };
   for (const mode of BROWSER_MODES) {
     it(`${mode}: pede exatamente o esperado; confiável = livre`, () => {
@@ -180,11 +181,21 @@ describe('needsApproval: modos × site confiável × categorias', () => {
     expect(gateReason({ kind: 'clicar', url: 'https://erp.example/', element: el({ name: 'Salvar' }) })).toBeDefined();
   });
 
-  it('judge: Salvar no equilibrado passa; Excluir pede; Pagar pede até em site confiável', () => {
+  it('ponto: o rótulo decide a categoria; sem rótulo não pede; WhatsApp segue sem pedir', () => {
+    expect(classify({ kind: 'ponto', url: 'https://loja.example/', rotulo: 'Comprar' })).toBe('dinheiro');
+    expect(classify({ kind: 'ponto', url: 'https://loja.example/', rotulo: 'gráfico' })).toBeUndefined();
+    expect(classify({ kind: 'ponto', url: 'https://loja.example/' })).toBeUndefined();
+    expect(judge({ kind: 'ponto', url: 'https://loja.example/', rotulo: 'Comprar' }, { mode: 'livre', trusted: false }).reason).toBeUndefined();
+    expect(judge({ kind: 'ponto', url: 'https://loja.example/', rotulo: 'Comprar' }, { mode: 'equilibrado', trusted: false }).reason).toMatch(/pagamento/);
+    expect(judge({ kind: 'ponto', url: 'https://web.whatsapp.com/', rotulo: 'Comprar' }, { mode: 'cauteloso', trusted: false }).reason).toBeUndefined();
+  });
+
+  it('judge: Salvar no equilibrado passa; Excluir pede; Pagar no livre não pede', () => {
     const p = { mode: 'equilibrado' as const, trusted: false };
     expect(judge({ kind: 'clicar', url: 'https://erp.example/', element: el({ name: 'Salvar', submits: true, inForm: true }) }, p).reason).toBeUndefined();
     expect(judge({ kind: 'clicar', url: 'https://erp.example/', element: el({ name: 'Excluir cliente' }) }, p).reason).toMatch(/excluir/);
-    expect(judge({ kind: 'clicar', url: 'https://erp.example/', element: el({ name: 'Pagar' }) }, { mode: 'livre', trusted: true }).reason).toMatch(/pagamento/);
+    expect(judge({ kind: 'clicar', url: 'https://erp.example/', element: el({ name: 'Pagar' }) }, { mode: 'livre', trusted: true }).reason).toBeUndefined();
+    expect(judge({ kind: 'clicar', url: 'https://erp.example/', element: el({ name: 'Pagar' }) }, p).reason).toMatch(/pagamento/);
     expect(judge({ kind: 'download', url: 'https://erp.example/' }, p).reason).toBeUndefined();
     expect(judge({ kind: 'arquivo', url: 'https://erp.example/' }, { mode: 'equilibrado', trusted: true }).reason).toBeUndefined();
     expect(judge({ kind: 'tecla', url: 'https://erp.example/', key: 'Enter', element: el({ role: 'textbox', editable: true, inForm: true }) }, p).reason).toBeUndefined();
@@ -203,16 +214,16 @@ describe('configuração (navegador.json)', () => {
     for (const bad of ['', 'web.whatsapp.com:443', 'web.whatsapp.com', 'a b', 'x:99999', 42, '../x', 'javascript:alert(1)']) expect(parseSite(bad), String(bad)).toBeUndefined();
   });
 
-  it('arquivo ausente = equilibrado; corrompido = padrão; campos inválidos ignorados', () => {
+  it('arquivo ausente = livre; corrompido = padrão; campos inválidos ignorados', () => {
     const dir = mkdtempSync(join(tmpdir(), 'habblaud-navcfg-'));
     try {
       const file = join(dir, 'navegador.json');
-      expect(new BrowserConfigStore(file).get()).toEqual({ modo: 'equilibrado', sitesConfiaveis: [] });
+      expect(new BrowserConfigStore(file).get()).toEqual({ modo: 'livre', sitesConfiaveis: [] });
       writeFileSync(file, '{ isto não é json');
-      expect(new BrowserConfigStore(file).get()).toEqual({ modo: 'equilibrado', sitesConfiaveis: [] });
+      expect(new BrowserConfigStore(file).get()).toEqual({ modo: 'livre', sitesConfiaveis: [] });
       writeFileSync(file, JSON.stringify({ modo: 'turbo', sitesConfiaveis: ['127.0.0.1:4800', 'web.whatsapp.com:443', 7, '127.0.0.1:4800'] }));
-      expect(new BrowserConfigStore(file).get()).toEqual({ modo: 'equilibrado', sitesConfiaveis: ['127.0.0.1:4800'] });
-      expect(sanitizeConfig(null)).toEqual({ modo: 'equilibrado', sitesConfiaveis: [] });
+      expect(new BrowserConfigStore(file).get()).toEqual({ modo: 'livre', sitesConfiaveis: ['127.0.0.1:4800'] });
+      expect(sanitizeConfig(null)).toEqual({ modo: 'livre', sitesConfiaveis: [] });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

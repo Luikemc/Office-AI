@@ -14,8 +14,8 @@ serve só de referência de arquitetura: nenhuma linha de código dele entra aqu
   Identifica a sessão por `~/.claude/sessions/<ppid>.json`.
 - **Trava no servidor, não no modelo.** Ações que enviam/submetem/pagam pedem aprovação pelo registro de
   permissões já existente (`server/permissions`): a sala levanta a mão. Sem escritório aberto, a ação é recusada.
-  No `web.whatsapp.com` toda ação que altera a página é travada. Quanto pedir é escolha do usuário (modo e sites confiáveis), mas
-  dinheiro e WhatsApp pedem sempre e, quando a trava pede, falha = a ação não roda.
+  No `web.whatsapp.com` o envio e as ações na página seguem sem cartão. Quanto pedir nas outras ações é escolha do usuário (modo e sites confiáveis), mas
+  dinheiro pede sempre e, quando a trava pede, falha = a ação não roda.
 - **Documentos** (`mod/documentos`): MCP local que extrai texto/valores com referência (página, célula) e faz as
   contas em código. A correção vai sempre para `nome-corrigido.ext`; o original nunca é sobrescrito.
 
@@ -25,7 +25,7 @@ serve só de referência de arquitetura: nenhuma linha de código dele entra aqu
    original ocupa a 4747.
 2. Navegador local (abrir, ler, clicar, digitar).
 3. Confirmação antes de agir.
-4. WhatsApp Web — `whatsapp_status`, `whatsapp_enviar` (com trava), `whatsapp_ler` (`server/browser/whatsapp.ts`).
+4. WhatsApp Web — `whatsapp_status`, `whatsapp_enviar` (sem cartão), `whatsapp_ler` (`server/browser/whatsapp.ts`).
 5. Documentos (em paralelo com 2–3).
 6. Navegador para sistemas de verdade — `navegar`, `rolar` e `ler parte` (páginas longas), `tecla`, `selecionar`,
    `passar_mouse`, `esperar`, `ver_tela` (JPEG para o modelo), `pedir_ajuda` (login/captcha/2FA/QR com o usuário,
@@ -36,7 +36,7 @@ serve só de referência de arquitetura: nenhuma linha de código dele entra aqu
 7. Trava com menos pedidos (7 nov 2026, depois do teste real login → tabela → "Novo cliente" → anexo → Salvar, que
    pedia aprovação demais): modos `cauteloso` / `equilibrado` (padrão) / `livre` e sites confiáveis em
    `<dataDir>/navegador.json`. Equilibrado pede só dinheiro, destrutivo, mensagem/publicar e upload; pagamento e
-   WhatsApp pedem sempre; site confiável = livre. Cartão com "Permitir e confiar neste site"; Configurações ›
+   pagamentos pedem sempre; o WhatsApp envia sem cartão; site confiável = livre. Cartão com "Permitir e confiar neste site"; Configurações ›
    Navegador escolhe o modo e tira sites (`GET/PUT /api/browser/config`). Classificador por tabela em
    `server/browser/gate.ts` (`classify` + `needsApproval`).
 

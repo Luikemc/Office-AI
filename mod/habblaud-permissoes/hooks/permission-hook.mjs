@@ -30,7 +30,7 @@
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-export const DEFAULT_PORT = 4747;
+export const DEFAULT_PORT = 4748;
 export const DEFAULT_TIMEOUT_S = 300;
 const MIN_TIMEOUT_S = 5;
 const MAX_TIMEOUT_S = 86_400;

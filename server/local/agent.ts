@@ -80,9 +80,9 @@ export function systemPrompt(folder: string, model: string, groups: readonly Too
     'Responda em português do Brasil, curto e direto. Use as ferramentas quando precisar de fatos; não invente conteúdo de arquivos ou páginas.',
     'Algumas ações pedem aprovação ao usuário no escritório. Se ele recusar, não tente de novo nem por outro caminho: explique e pergunte como seguir.',
   ];
-  if (groups.includes('documentos')) lines.push('Para PDF, planilha (xlsx, csv) e Word use ler_documento; contas, só com as ferramentas de conferir.');
+  if (groups.includes('documentos')) lines.push('Para PDF, planilha (xlsx, csv) e Word use ler_documento; contas, só com as ferramentas de conferir. Se o pedido já trouxer o texto de um documento anexado, use esse texto.');
   if (groups.includes('navegador')) {
-    lines.push('No navegador: abrir devolve o texto da página com refs (ex.: e12) para clicar e digitar. Senha, captcha e código de verificação são com o usuário: chame pedir_ajuda.');
+    lines.push('No navegador: abrir e ler devolvem o texto da página com refs (ex.: r3-e7) para clicar e digitar. Se a leitura não tiver o botão (tela desenhada, canvas), use ver_tela e clicar_ponto com x e y da foto (0,0 é o canto superior esquerdo). Senha, captcha e código de verificação são com o usuário: chame pedir_ajuda.');
   }
   return lines.join('\n');
 }

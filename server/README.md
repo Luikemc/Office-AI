@@ -262,9 +262,10 @@ ou resposta inválidos), 404 (pedido desconhecido, já entregue ou expirado), 40
 ## Navegador do escritório
 
 O servidor é o único dono de **um** contexto persistente do Chrome do sistema (`browser/service.ts`, `playwright-core`
-com `channel: 'chrome'`, perfil em `<dataDir>/navegador-perfil`, então os logins ficam). O Chrome só abre no primeiro
-uso; se você fechar a janela, o próximo uso abre de novo. Liga com a trava das permissões (bind local) e fora do
-Docker; `HABBLAUD_BROWSER=0` desliga, `HABBLAUD_BROWSER_HEADLESS=1` abre sem janela (testes) e
+com `channel: 'chrome'`, perfil em `<dataDir>/navegador-perfil`, então os logins ficam). O Chrome abre no primeiro
+uso numa tela virtual (Xvfb), fora do monitor. A imagem ao vivo fica no botão **Navegador** da barra: você clica e
+digita ali. Sem o Xvfb, abre sem janela e a imagem continua no escritório. Liga com a trava das permissões (bind local)
+e fora do Docker; `HABBLAUD_BROWSER=0` desliga, `HABBLAUD_BROWSER_HEADLESS=1` força sem janela (testes) e
 `HABBLAUD_BROWSER_PATH` troca o executável.
 
 Quem usa é o MCP do plugin `navegador` (`mod/navegador/server.mjs`, stdio, sem dependências), um por sessão do Claude
@@ -278,6 +279,7 @@ e repassa para `POST /api/browser/<ferramenta>` com `{sessionId, ...}`:
 | `ler` | `{tabId, parte?}` | `{ok, aba, texto}` |
 | `rolar` | `{tabId, direcao?: baixo\|cima, ref?, quanto?: pagina\|metade}` | `{ok, aba, texto}` |
 | `clicar` | `{tabId, ref, elemento}` | `{ok, aba, texto}` |
+| `clicar_ponto` | `{tabId, x, y, elemento?}` (pixel da foto do `ver_tela`, 0,0 no canto superior esquerdo, viewport 1280×800; a trava lê o rótulo) | `{ok, aba, texto}` |
 | `digitar` | `{tabId, ref, texto, enviar?, elemento?}` | `{ok, aba, texto}` |
 | `tecla` | `{tabId, tecla, ref?, elemento?}` (nomes do Playwright: `Enter`, `Tab`, `ArrowDown`, `Control+a`...) | `{ok, aba, texto}` |
 | `selecionar` | `{tabId, ref, valores: string[], elemento?}` (texto ou valor da opção de um `<select>` nativo) | `{ok, aba, texto}` |
@@ -301,19 +303,18 @@ limites, com refs só dela), e diz se há a próxima — assim uma tabela de 300
 revisão ou que não existe mais → 409 "faça `ler` de novo". Cada aba tem uma fila (uma ação por vez); cada sessão só
 vê as próprias abas (a de outra sessão responde como desconhecida); popups viram abas da mesma sessão. Clicar usa a
 espera do Playwright (visível, estável, não coberto) e depois espera a página assentar (load + DOM quieto, até
-1,5 s); `digitar` usa `fill` e, com `enviar`, aperta Enter na mesma operação; campo `type=password` é recusado (o
-modelo não digita senha: "use `pedir_ajuda`"). `rolar` rola a página (ou o painel com rolagem própria em volta de
+1,5 s); `digitar` usa `fill` e, com `enviar`, aperta Enter na mesma operação, inclusive em campo `type=password`. `rolar` rola a página (ou o painel com rolagem própria em volta de
 `ref`) e diz se chegou ao fim; `passar_mouse` abre menus de passar o mouse; `selecionar` usa `selectOption` só em
 `<select>` nativo (opção que não existe → lista as opções; combobox feito à mão → "use clicar"); `esperar` espera o
 texto aparecer/sumir no `innerText` da página; `ver_tela` tira um JPEG (qualidade 60) da área visível (1280×800) ou de
 um elemento (até 1280×1600), sem mudar a revisão. Não há ferramenta de rodar código na página.
 
-**Ajuda do usuário** (`pedir_ajuda`): para login com senha, captcha, código (2FA) e QR. Traz a aba para a frente
-(`page.bringToFront()`) e põe no escritório, pelo mesmo `requestInternal` da trava, o cartão
-`mcp__navegador__pedir_ajuda(site)` "Ajuda no navegador: <motivo> — faça na janela do Chrome e clique Permitir quando
-terminar" (a sala levanta a mão). Espera até 15 min, fora da fila da aba; Permitir → leitura nova; Recusar → `403
-denied` "o usuário disse que não vai fazer"; sem escritório aberto → `200` com o texto para o modelo pedir no chat
-que o usuário faça na janela do Chrome (sem mandar senha no chat) e depois chamar `ler`. O login fica no perfil.
+**Ajuda do usuário** (`pedir_ajuda`): para login com senha, captcha, código (2FA) e QR. Abre o quadro Navegador do
+escritório nessa aba e põe, pelo mesmo `requestInternal` da trava, o cartão
+`mcp__navegador__pedir_ajuda(site)` "Ajuda no navegador: <motivo> — abra Navegador na barra, faça nessa tela e clique
+Permitir quando terminar" (a sala levanta a mão). Espera até 15 min, fora da fila da aba; Permitir → leitura nova;
+Recusar → `403 denied` "o usuário disse que não vai fazer"; sem escritório aberto → `200` com o texto para o modelo
+pedir no chat que o usuário faça no quadro Navegador (sem mandar senha no chat) e depois chamar `ler`. O login fica no perfil.
 
 **Arquivos** (`enviar_arquivo`): só da pasta do projeto da sessão (o cwd da sala dela no escritório,
 `BrowserOptions.projectDir`); caminho com `..`, absoluto fora dela, link que leva para fora, pasta, arquivo que não
@@ -323,10 +324,10 @@ arquivo (`filechooser`) aberta pelo clique no botão. Confere os caminhos de nov
 **Trava** (`browser/gate.ts`, no servidor, pura e por tabela). `classify(ação)` dá a categoria do risco e
 `needsApproval(categoria, modo, site confiável)` decide se pede:
 
-| Categoria | O que é | Cauteloso | Equilibrado (padrão) | Livre / site confiável |
+| Categoria | O que é | Cauteloso | Equilibrado | Livre (padrão) / site confiável |
 | --- | --- | --- | --- | --- |
-| `dinheiro` | pagar, comprar, finalizar compra/pedido, checkout, transferir, Pix, assinar plano, doar (pt/en/es; também o botão de um formulário de checkout) | pede | pede | pede |
-| `whatsapp` | toda ação que altera a página no `*.whatsapp.com` (e o `whatsapp_enviar`, sempre) | pede | pede | pede |
+| `dinheiro` | pagar, comprar, finalizar compra/pedido, checkout, transferir, Pix, assinar plano, doar (pt/en/es; também o botão de um formulário de checkout) | pede | pede | — |
+| `whatsapp` | toda ação que altera a página no `*.whatsapp.com` (e o `whatsapp_enviar`) | — | — | — |
 | `destrutivo` | excluir, apagar, remover, deletar, eliminar, borrar, cancelar/encerrar/desativar conta ou assinatura, revogar | pede | pede | — |
 | `mensagem` | publicar, postar, tweet, enviar mensagem/e-mail, responder, comentar, convidar; "Enviar"/"Send" fora de `<form>`; Enter/`digitar` com `enviar` num campo de mensagem; Enter sem saber onde está o foco | pede | pede | — |
 | `upload` | `enviar_arquivo` | pede | pede | — |
@@ -336,10 +337,10 @@ arquivo (`filechooser`) aberta pelo clique no botão. Confere os caminhos de nov
 As palavras casam no começo de uma palavra do texto sem acento e em minúsculas, fechando a palavra: "Página",
 "Pagamentos" e "Compras" (menus), "removível", "Guardar borrador", "Envío gratis", "Remover filtro" e "Remove from
 cart" não pedem. `selecionar` só pede no WhatsApp; `passar_mouse`, `rolar`, `ler`, `esperar` e `ver_tela` nunca.
-`pedir_ajuda` não muda (é a vez do usuário, não uma aprovação).
+`pedir_ajuda` não muda (é a vez do usuário, não uma aprovação). Ações no WhatsApp não pedem.
 
-O modo e os sites confiáveis ficam em `<dataDir>/navegador.json` (`browser/config.ts`): `{"modo": "equilibrado",
-"sitesConfiaveis": ["127.0.0.1:4800"]}`, gravado de uma vez (`.tmp` + rename); ausente ou inválido = equilibrado sem
+O modo e os sites confiáveis ficam em `<dataDir>/navegador.json` (`browser/config.ts`): `{"modo": "livre",
+"sitesConfiaveis": ["127.0.0.1:4800"]}`, gravado de uma vez (`.tmp` + rename); ausente ou inválido = livre sem
 sites. Site = `host:porta` com a porta explícita (`loja.example:443`); WhatsApp não entra na lista. Site confiável =
 `livre` naquele site. `GET /api/browser/config` e `PUT /api/browser/config` `{modo?, sitesConfiaveis?}` (a seção
 Navegador das Configurações) só pela porta local, `Host` local e conexão pelo loopback; no `PUT`, `Origin` ausente
@@ -348,7 +349,7 @@ ou exatamente a da página (outra porta local também é recusada) e JSON; valor
 Quando pede, o pedido entra no registro de permissões por
 dentro (`PermissionRegistry.requestInternal`, `browser/approval.ts`): o cartão (`mcp__navegador__clicar(site)`) mostra
 o site, o elemento como a página o descreve, a descrição do agente, o motivo e, ao digitar, o texto exato; a sala
-fica `waiting`. Fora de `dinheiro` e `whatsapp`, o cartão também oferece **"Permitir e confiar neste site"**
+fica `waiting`. O cartão também oferece **"Permitir e confiar neste site"**
 (`PermissionRequestInfo.trustSite` = o `host:porta`; decisão `{behavior: 'allow', trustSite: true}`, recusada com 400
 onde o cartão não ofereceu): a ação roda e o site entra em `sitesConfiaveis`. A requisição HTTP fica aberta até a resposta (até 5 min; o MCP usa `node:http` sem tempo limite);
 conexão que cai tira o pedido. Sem página aberta, sessão desconhecida, recusa, "responder no terminal", tempo
@@ -363,23 +364,22 @@ usam uma página local que imita a estrutura: `server/test/whatsapp-fixture.ts`;
 1. **estado** — `#side`/`#pane-side` = conectado; senão o texto/QR da página (pt/en/es) diz QR de login, "aberto em
    outra janela" (o "Usar aqui" é com o usuário: nunca clica) ou navegador incompatível (não contorna nem troca o user
    agent); espera até 25 s sair de "carregando". Não conectado → `409 not-ready` com o texto para o modelo pedir ao
-   usuário que escaneie o QR na janela do Chrome e chamar `whatsapp_status` de novo;
+   usuário que escaneie o QR no quadro Navegador do escritório e chamar `whatsapp_status` de novo;
 2. **conversa** — digita o nome na busca (primeiro campo de texto de `#side`), lê os itens (`[role=listitem]`/
    `[role=row]` mais externos, nome no primeiro `span[title]`, até a seção "Mensagens"), compara sem acento/maiúscula.
-   Um único item individual com o nome exato → abre; vários com o mesmo nome, nenhum exato (devolve os parecidos) ou
-   nenhum → `409 ambiguous`, nada digitado; grupo (`[data-icon*=group]`, "dados do grupo") → recusa;
+   Um único item com o nome exato → abre (grupo também); vários com o mesmo nome, nenhum exato (devolve os parecidos) ou
+   nenhum → `409 ambiguous`, nada digitado. Telefone (só dígitos e pontuação) usa a conversa já aberta ou a busca;
+   só navega para `{origem}/send?phone=` se a lista não tiver o número (12 a 15 dígitos como estão; 10 ou 11, DDD +
+   número, ganham 55 na frente). As ferramentas do WhatsApp não trazem a janela do Chrome para a frente.
 3. **cabeçalho** — `#main header` precisa mostrar o nome; senão recusa;
 4. **texto** — no compositor (`#main footer [contenteditable=true]`) com `keyboard.insertText`, Shift+Enter entre as
    linhas (nunca Enter sozinho), conferido depois. Rascunho que já estava lá → recusa (não apaga o do usuário);
-5. **trava** — o mesmo `Gate` (registro de permissões): cartão `mcp__navegador__whatsapp_enviar(<nome>)` "Enviar no
-   WhatsApp para <nome do cabeçalho>" com "Para:" e a mensagem exata. Recusa, sem escritório aberto, tempo esgotado
-   ou conexão que cai → apaga o compositor e `403 denied`; depois do ok confere de novo cabeçalho e texto;
-6. **envio** — Enter no compositor e espera até 8 s a última `.message-out`/`[data-id^="true_"]` nova com o mesmo
-   texto: `confirmado: true`; se não aparecer, `confirmado: false` e o texto diz "NÃO CONFIRMADO, não envie de novo".
+5. **envio** — sem cartão de aprovação: Enter no compositor. Conta como enviada se, em até 8 s, surgir um balão de saída com o mesmo texto (a hora que o WhatsApp cola no fim não conta) ou se a caixa esvaziar e ficar vazia. Senão `confirmado: false` e o texto diz "NÃO CONFIRMADO, não envie de novo". Balão de saída: classe `message-out`, identificador `true_…` ou ícone de enviado (`msg-check` / `msg-dblcheck`). O texto sai do bloco `data-pre-plain-text`, senão do trecho selecionável, senão de um `span`.
 
-Um `whatsapp_enviar` por vez e no mínimo 20 s entre envios do perfil (`429 too-many`). `whatsapp_ler` não passa pela
-trava (só lê; abrir a conversa a marca como lida) e avisa que o conteúdo é de terceiros. `clicar`/`digitar` no
-`*.whatsapp.com` continuam travados. Sem grupos, áudio, figurinha, arquivo ou envio em massa.
+Um `whatsapp_enviar` por vez. O intervalo padrão é zero (`whatsappIntervalMs` ainda pode impor uma espera; aí o segundo
+envio volta `429 too-many`). `whatsapp_ler` só lê (abrir a conversa a marca como lida) e avisa que o conteúdo é de
+terceiros. `clicar`, `digitar` e `tecla` no `*.whatsapp.com` também seguem sem cartão. Grupo e telefone com DDI entram.
+Áudio, figurinha e arquivo não têm ferramenta própria: dá para chegar neles pelos cliques na página.
 
 Borda: só pela porta local (a remota recebe 403 mesmo com login), `Host` local, conexão pelo loopback e **sem
 `Origin`** nos `POST` (uma página aberta no próprio navegador manda `Origin`; o MCP, não). Erros:
@@ -614,7 +614,7 @@ em `shared/world/city.ts` (fonte da verdade; o servidor do mundo guarda a cópia
 | `HABBLAUD_CODEX_DIRS` | — | pastas do Codex separadas por vírgula; substitui a detecção (`CODEX_HOME` e `~/.codex*`) |
 | `HABBLAUD_CODEX_BIN` | `codex` do PATH | binário do Codex para o `codex queue` (modo Node e `npm run codex:bridge`) |
 | `HABBLAUD_BROWSER` | ligado (com o terminal, fora do Docker) | `0` desliga o navegador do escritório (`/api/browser/*`) |
-| `HABBLAUD_BROWSER_HEADLESS` | desligado | `1` abre o Chrome do navegador sem janela |
+| `HABBLAUD_BROWSER_HEADLESS` | desligado | `1` abre o Chrome sem janela (a imagem segue no escritório). Sem isto, o Chrome fica numa tela virtual (Xvfb), fora do monitor |
 | `HABBLAUD_BROWSER_PATH` | Chrome instalado (`channel: 'chrome'`) | executável do Chrome/Chromium do navegador |
 | `HABBLAUD_MENSAGENS` | ligado (com o terminal) | `0`, `false`, `off` ou `no` desligam só as mensagens pelo escritório |
 | `HABBLAUD_CLAUDE_DIRS` | — | config dirs separados por vírgula; substitui a detecção (`~/.claude*` com `projects/` ou `sessions/` + `CLAUDE_CONFIG_DIR`) |

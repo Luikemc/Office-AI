@@ -5,7 +5,7 @@ import { parseRef, publicRef, renderSnapshot } from './snapshot';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkSession, checkUploads, normalizeUrl } from './service';
+import { checkSession, checkUploads, normalizeUrl, parsePoint } from './service';
 
 const el = (over: Partial<ElementFacts> = {}): ElementFacts => ({ role: 'button', name: '', ...over });
 const click = (element: ElementFacts, url = 'https://loja.example/x') => gateReason({ kind: 'clicar', url, element });
@@ -37,12 +37,13 @@ describe('gateReason', () => {
     expect(click(el({ name: 'Ir', role: 'button', inForm: true, formHint: 'checkout' }))).toBeDefined();
   });
 
-  it('digitar só trava com enviar=true; no WhatsApp, toda ação que altera a página trava', () => {
+  it('digitar só trava com enviar=true; no WhatsApp a ação segue sem pedir', () => {
     const field = el({ role: 'textbox', name: 'Mensagem' });
     expect(gateReason({ kind: 'digitar', url: 'https://x.example', element: field, enviar: false })).toBeUndefined();
     expect(gateReason({ kind: 'digitar', url: 'https://x.example', element: field, enviar: true })).toBeDefined();
-    expect(gateReason({ kind: 'digitar', url: 'https://web.whatsapp.com/', element: field, enviar: false })).toMatch(/WhatsApp/);
-    expect(click(el({ role: 'link', name: 'Conversas' }), 'https://web.whatsapp.com/')).toMatch(/WhatsApp/);
+    expect(gateReason({ kind: 'digitar', url: 'https://web.whatsapp.com/', element: field, enviar: false })).toBeUndefined();
+    expect(gateReason({ kind: 'digitar', url: 'https://web.whatsapp.com/', element: field, enviar: true })).toBeUndefined();
+    expect(click(el({ role: 'link', name: 'Conversas' }), 'https://web.whatsapp.com/')).toBeUndefined();
     expect(lockedSite('https://whatsapp.com.evil.example/')).toBe(false);
     expect(gateReason({ kind: 'download', url: 'https://x.example/a.zip' })).toBeDefined();
   });
@@ -62,18 +63,19 @@ describe('trava das ferramentas novas', () => {
     expect(key('Enter', el({ role: 'link', name: 'Clientes', tag: 'a', href: 'https://erp.example/c' }))).toBeUndefined();
   });
 
-  it('tecla: Enter ou Espaço num botão que envia trava como o clique; no WhatsApp toda tecla trava', () => {
+  it('tecla: Enter ou Espaço num botão que envia trava como o clique; no WhatsApp a tecla segue', () => {
     const salvar = el({ role: 'button', name: 'Salvar', tag: 'button', type: 'submit', submits: true, inForm: true });
     expect(key('Enter', salvar)).toBeDefined();
     expect(key(' ', salvar)).toBeDefined();
     expect(key('Space', salvar)).toBeDefined();
     expect(key('Enter', el({ role: 'button', name: 'Menu', tag: 'button', type: 'button' }))).toBeUndefined();
-    expect(key('ArrowDown', field, 'https://web.whatsapp.com/')).toMatch(/WhatsApp/);
+    expect(key('ArrowDown', field, 'https://web.whatsapp.com/')).toBeUndefined();
+    expect(key('Enter', field, 'https://web.whatsapp.com/')).toBeUndefined();
   });
 
-  it('selecionar só trava no WhatsApp; enviar arquivo sempre trava', () => {
+  it('selecionar não trava; enviar arquivo sempre trava', () => {
     expect(gateReason({ kind: 'selecionar', url: 'https://erp.example/' })).toBeUndefined();
-    expect(gateReason({ kind: 'selecionar', url: 'https://web.whatsapp.com/' })).toBeDefined();
+    expect(gateReason({ kind: 'selecionar', url: 'https://web.whatsapp.com/' })).toBeUndefined();
     expect(gateReason({ kind: 'arquivo', url: 'https://erp.example/' })).toMatch(/arquivos/);
   });
 });
@@ -185,5 +187,14 @@ describe('entradas', () => {
   it('sessionId: texto curto e sem caracteres estranhos', () => {
     expect(checkSession('2b89ac5e-4444-4407-97ee-9f727991e71f')).toBeTruthy();
     for (const bad of ['', '../x', 'a b', undefined, 'x'.repeat(201)]) expect(() => checkSession(bad)).toThrow();
+  });
+
+  it('parsePoint: pixel da foto 1280×800, canto superior esquerdo', () => {
+    expect(parsePoint(0, 0, 1280, 800)).toEqual({ x: 0, y: 0 });
+    expect(parsePoint(12.4, 799.2, 1280, 800)).toEqual({ x: 12, y: 799 });
+    expect(parsePoint('40', '10', 1280, 800)).toEqual({ x: 40, y: 10 });
+    expect(parsePoint(1280, 0, 1280, 800)).toBeUndefined();
+    expect(parsePoint(-1, 10, 1280, 800)).toBeUndefined();
+    expect(parsePoint('x', 10, 1280, 800)).toBeUndefined();
   });
 });

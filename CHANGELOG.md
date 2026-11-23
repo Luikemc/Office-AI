@@ -10,11 +10,22 @@ do meio (0.**3**.0).
 
 ## [Não lançado]
 
+### Alterado
+
+- **Sem o escritório em pixel art, o meio da tela é o terminal.** A conversa do agente escolhido fica onde estava a caixa de mensagem, com o histórico e o texto embaixo. A janela solta continua quando o jogo está ligado.
+- **WhatsApp sem roubar a janela.** Ler e enviar não trazem o Chrome para a frente. Abrir o WhatsApp de novo, ou recarregar, não cria outra aba nem recarrega a que já está aberta. Conversa por telefone usa a que já está na tela ou na lista; a página só recarrega se o número ainda não estiver lá.
+- **Navegador livre por padrão.** O modo Livre não pede aprovação: o agente clica, digita (inclusive senha), paga, apaga, publica, baixa e envia arquivo sozinho. Cauteloso e Equilibrado continuam em Configurações › Navegador. No WhatsApp, `whatsapp_enviar` e `whatsapp_ler` aceitam grupo e telefone com DDI (a conversa abre pelo número mesmo fora da lista) e não há espera entre envios. Continua um envio por vez. O envio conta como feito quando o balão aparece ou quando a caixa de mensagem esvazia; se o Enter não esvaziar a caixa, um clique no botão de enviar tenta de novo. A leitura espera o histórico e, se não achar balão, diz o que a página tem. A leitura e a confirmação do envio pegam qualquer balão com identificador (`data-id`), mesmo quando ele não começa com `true_` ou `false_`, e leem o texto do bloco, do trecho selecionável ou do `span`. Conta comercial não entra como nome do contato.
+
 ### Adicionado
 
+- **Arquivo na pasta `entrada` avisa a sessão.** Cada projeto com um agente aberto ganha a pasta `entrada`. Um arquivo colocado ali acorda só as sessões daquela pasta, pela caixa de mensagem. Sessão de outra pasta não recebe. O que já estava na pasta quando a sessão abriu não avisa. Precisa do plugin de mensagens.
+- **Navegador dentro do escritório.** O Chrome abre numa tela virtual, fora do monitor. O botão Navegador na barra mostra a página ao vivo; você clica e digita ali (login, captcha, QR). Pedir ajuda abre esse quadro.
+- **Clique por pixel no navegador.** Quando a página é desenhada (canvas) e a leitura não tem botão, `ver_tela` mostra a foto e `clicar_ponto` clica em x,y dessa foto (0,0 é o canto superior esquerdo, 1280×800). Página com botão de verdade continua no clique pela ref. O rótulo do ponto passa pela mesma trava.
+- **Documentos no pedido do agente local.** No Novo agente, com Ollama, anexar PDF, planilha ou Word coloca o texto no pedido. Imagem e outros arquivos ficam só citados.
+- **Escritório em pixel art opcional.** Em Configurações › Escritório, o interruptor desligado tira o jogo da página: a lista de agentes fica à esquerda, a atividade embaixo e o terminal do agente escolhido no meio. O ditado, quando o computador transcreve, fica nessa conversa. Ligado, a página segue como antes.
 - **Navegador do escritório (plugin `navegador`).** O Claude Code ganha ferramentas de navegador — abrir, ler,
   clicar, digitar, abas e fechar — num Chrome local do Habblaud, com perfil próprio (os logins ficam). Cada sessão só
-  vê as próprias abas. Enviar, submeter, pagar, confirmar, apagar ou publicar, toda ação no WhatsApp e downloads
+  vê as próprias abas. Enviar, submeter, pagar, confirmar, apagar ou publicar e downloads
   esperam a sua aprovação no escritório: a sala levanta a mão e o cartão mostra o site, o elemento e o texto exato
   que vai ser digitado. Sem o escritório aberto, a ação é recusada. Instale com `npm run mod:install -- --com-navegador`.
 - **Navegador para sistemas de verdade.** Ferramentas novas: `navegar` (outro endereço, voltar, avançar, recarregar
@@ -23,15 +34,14 @@ do meio (0.**3**.0).
   que demora a aparecer), `ver_tela` (o agente vê uma foto da página: gráficos, imagens), `pedir_ajuda` e
   `enviar_arquivo`. Login com senha, captcha, código de verificação e QR são com você: o agente chama `pedir_ajuda`, a
   aba vem para a frente, a sala levanta a mão com "Ajuda no navegador: …" e você faz na janela do Chrome e clica
-  Permitir; o login fica salvo no perfil. O agente não digita senha (o campo é recusado). Enter num campo de
+  Permitir; o login fica salvo no perfil. O agente pode digitar a senha no campo da página. Enter num campo de
   formulário e todo envio de arquivo (só da pasta do projeto, com os nomes no cartão) esperam a sua aprovação.
   `npm run sistema:exemplo` sobe um sistema de mentira local para testar.
-- **Navegador pede menos aprovações: modos Cauteloso, Equilibrado e Livre.** No modo Equilibrado (o novo padrão) o
+- **Navegador pede menos aprovações: modos Cauteloso, Equilibrado e Livre.** No modo Equilibrado o
   agente preenche, salva, cadastra, confirma, entra e baixa arquivos sozinho; a sala só levanta a mão para pagar ou
-  comprar, excluir ou cancelar, mandar mensagem ou publicar e enviar arquivos. Cauteloso é o jeito de antes (pede para
-  qualquer envio de formulário e download); Livre pede só para pagamentos. Pagamentos e o WhatsApp pedem sempre, em
-  qualquer modo. O cartão de aprovação ganhou **“Permitir e confiar neste site”**: aprova e marca o site como
-  confiável, onde o navegador age como no Livre (não aparece em pagamentos nem no WhatsApp). Escolha o modo e tire
+  comprar, excluir ou cancelar, mandar mensagem ou publicar e enviar arquivos. Cauteloso pede para
+  qualquer envio de formulário e download; Livre (o padrão) não pede, nem para pagamento. O cartão de aprovação ganhou **“Permitir e confiar neste site”**: aprova e marca o site como
+  confiável, onde o navegador age como no Livre. Escolha o modo e tire
   sites da lista em Configurações › Navegador; vale na hora, sem reiniciar (fica em `navegador.json` na pasta de
   dados).
 - **Documentos: o agente lê e confere PDF, planilha e Word da pasta do projeto.** Plugin novo `documentos` (um

@@ -153,7 +153,7 @@ describe('cartões das ferramentas novas', () => {
     await flush();
     const a = office.commit().snapshot.agents.find((x) => x.id === MAIN)!;
     expect(a.status).toBe('waiting');
-    expect(a.permission).toMatchObject({ tool: 'mcp__navegador__pedir_ajuda', icon: '🙋', text: expect.stringMatching(/^Ajuda no navegador: login no sistema — faça na janela do Chrome e clique Permitir/) });
+    expect(a.permission).toMatchObject({ tool: 'mcp__navegador__pedir_ajuda', icon: '🙋', text: expect.stringMatching(/^Ajuda no navegador: login no sistema — abra Navegador na barra/) });
     expect(registry.detail(a.permission!.id)!.input).toMatch(/Nunca mande senhas/);
     // Passa dos 5 min padrão e continua esperando.
     clock.advance(10 * 60_000);

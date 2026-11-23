@@ -4,7 +4,7 @@
 //
 //   GET    /api/local/status                 → {ok, url, version?, error?, models, ferramentas, config, agents}
 //   PUT    /api/local/config  {url?, modelo?, contexto?, pensar?} → {ok, config}
-//   POST   /api/local/agents  {folder, prompt?, model?, ferramentas?} → 201 {ok, agent}
+//   POST   /api/local/agents  {folder, prompt?, model?, ferramentas?, attachments?} → 201 {ok, agent}
 //   POST   /api/local/agents/:id/interrupt   → {ok, interrupted}
 //   DELETE /api/local/agents/:id             → {ok}
 //

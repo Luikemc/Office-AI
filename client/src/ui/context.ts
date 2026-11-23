@@ -18,6 +18,8 @@ export type PanelName = 'sidebar' | 'feed';
 export interface TerminalRouter {
   /** Agente com o terminal aberto (qualquer um dos dois), ou null. */
   readonly openAgentId: string | null;
+  /** A conversa está no meio da página (sem o escritório em pixel art), então não fecha por cima. */
+  readonly docked: boolean;
   open(agentId: string, opener?: HTMLElement | null): void;
   toggle(agentId: string, opener?: HTMLElement | null): void;
   /** O terminal deste agente seria o interativo. */

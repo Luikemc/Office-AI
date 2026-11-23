@@ -20,6 +20,8 @@ import { errMsg, log } from '../log';
 import type { Office, TranscriptSummary } from '../model/office';
 import type { AgentSource } from '../sources/source';
 import { createTranscriptState, parseLine, titleOf, type TranscriptState } from '../sources/transcript';
+import { attachmentsRoot, writeAttachments, type Attachment, type AttachmentStore } from '../spawn/attachments';
+import { promptWithDocuments } from '../spawn/document-prompt';
 import { LocalAgent, TOOL_GROUPS, type ToolGroup } from './agent';
 import type { LocalConfigStore } from './config';
 import { isModelName } from './config';
@@ -58,6 +60,8 @@ export interface LocalSourceOptions {
   approve?: (sessionId: string) => Approve;
   /** Navegador ligado neste servidor (lido na hora). */
   browser: () => boolean;
+  /** Anexos do Novo agente (os mesmos de /api/spawn/attachments). Ausente = pedido sem anexo. */
+  attachments?: AttachmentStore;
   now?: () => number;
 }
 
@@ -196,6 +200,19 @@ export class LocalSource implements AgentSource {
 
     const sessionId = randomUUID();
     const id = `local-${sessionId.slice(0, 8)}`;
+    const files = this.takeAttachments(r.attachments);
+    let finalPrompt = prompt;
+    try {
+      if (files.length) {
+        try {
+          finalPrompt = await promptWithDocuments(prompt, writeAttachments(attachmentsRoot(), id, files), PROMPT_MAX);
+        } catch (err) {
+          throw new LocalAgentError('invalid', tr('não deu para gravar os anexos ({0})', [errMsg(err)]));
+        }
+      }
+    } finally {
+      this.opts.attachments?.release(files.reduce((n, f) => n + f.data.length, 0));
+    }
     mkdirSync(this.opts.dir, { recursive: true, mode: 0o700 });
     const path = join(this.opts.dir, `${sessionId}.jsonl`);
     const mcp: Partial<Record<ToolGroup, McpClient>> = {};
@@ -237,9 +254,18 @@ export class LocalSource implements AgentSource {
       startedAt: this.now(),
       status: 'idle',
     });
-    if (prompt.trim()) t.agent.send(prompt);
+    if (finalPrompt.trim()) t.agent.send(finalPrompt);
     log.info(tr('IA local: agente {0} ({1}) em {2}.', [id, model, folder]));
     return { id, model, folder, ferramentas: groups, ocupado: t.agent.busy };
+  }
+
+  /** Tira os anexos do depósito. Ids ausentes = erro. Lista vazia ou ausente = nenhum. */
+  private takeAttachments(ids: unknown): Attachment[] {
+    if (ids === undefined || (Array.isArray(ids) && ids.length === 0)) return [];
+    if (!this.opts.attachments) throw new LocalAgentError('invalid', tr('anexos desligados'));
+    const taken = this.opts.attachments.take(ids);
+    if ('error' in taken) throw new LocalAgentError('invalid', taken.error);
+    return taken;
   }
 
   /** Mensagem do escritório para um agente local. Lança LocalAgentError. */

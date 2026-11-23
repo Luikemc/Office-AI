@@ -697,6 +697,7 @@ function describeMcp(name: string, input: Record<string, unknown>): ActivityDesc
       case 'enviar_arquivo':
         return make('browser', '📎', tr('Enviando arquivo ao site'), el);
       case 'clicar':
+      case 'clicar_ponto':
         return make('browser', '🖱️', el ? tr('Clicando em {0}', [truncate(el, 30)]) : tr('Clicando na página'), el);
       case 'digitar':
         return make('browser', '⌨️', input.enviar === true ? tr('Digitando e enviando') : tr('Digitando na página'), el);

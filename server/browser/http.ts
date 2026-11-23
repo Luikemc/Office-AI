@@ -6,6 +6,7 @@
 //   POST /api/browser/ler       {sessionId, tabId, parte?}                → {ok, aba, texto}
 //   POST /api/browser/rolar     {sessionId, tabId, direcao?, ref?, quanto?} → {ok, aba, texto}
 //   POST /api/browser/clicar    {sessionId, tabId, ref, elemento}         → {ok, aba, texto}
+//   POST /api/browser/clicar_ponto {sessionId, tabId, x, y, elemento?}    → {ok, aba, texto}
 //   POST /api/browser/digitar   {sessionId, tabId, ref, texto, enviar?}   → {ok, aba, texto}
 //   POST /api/browser/tecla     {sessionId, tabId, tecla, ref?, elemento?} → {ok, aba, texto}
 //   POST /api/browser/selecionar {sessionId, tabId, ref, valores}         → {ok, aba, texto}
@@ -20,10 +21,12 @@
 //   POST /api/browser/whatsapp_enviar {sessionId, contato, texto}         → {ok, contato, confirmado, texto}
 //   POST /api/browser/whatsapp_ler    {sessionId, contato, quantas?}      → {ok, contato, mensagens, texto}
 //   GET  /api/browser/screenshot?sessionId=&tabId=                       → image/jpeg da aba (a mais nova sem tabId)
+//   GET  /api/browser/tela                                                → image/jpeg da página do quadro, ou 204 se o Chrome ainda não abriu
+//   POST /api/browser/tela      {tipo: click|tecla|texto|rolar, ...}      → {ok: true}  (o quadro do escritório)
 //   GET  /api/browser/config                                              → {ok, modo, sitesConfiaveis}
 //   PUT  /api/browser/config    {modo?, sitesConfiaveis?}                 → {ok, modo, sitesConfiaveis}
 //
-// /api/browser/config é a única rota daqui usada pela página do escritório (Configurações › Navegador): o app.ts
+// /api/browser/config e /api/browser/tela são as rotas daqui usadas pela página do escritório. O app.ts
 // confere Host local, conexão pelo loopback e, no PUT, Origin ausente ou da mesma origem (o guard já exigiu JSON).
 //
 // Erros: {ok: false, code, error} (400 invalid, 404 not-found, 409 stale/not-ready/ambiguous, 403 denied, 429 too-many,
@@ -45,6 +48,7 @@ const ACTIONS = new Set([
   'ler',
   'rolar',
   'clicar',
+  'clicar_ponto',
   'digitar',
   'tecla',
   'selecionar',
@@ -99,6 +103,8 @@ export function createBrowserRoutes(browser: BrowserService): (req: IncomingMess
         return { ok: true, ...(await browser.enviarArquivo(sid, body.tabId, body.ref, body.caminhos, body.elemento, signal)) };
       case 'clicar':
         return { ok: true, ...(await browser.clicar(sid, body.tabId, body.ref, body.elemento, signal)) };
+      case 'clicar_ponto':
+        return { ok: true, ...(await browser.clicarPonto(sid, body.tabId, body.x, body.y, body.elemento, signal)) };
       case 'digitar':
         return { ok: true, ...(await browser.digitar(sid, body.tabId, body.ref, body.texto, body.enviar, body.elemento, signal)) };
       case 'whatsapp_status':
@@ -129,6 +135,53 @@ export function createBrowserRoutes(browser: BrowserService): (req: IncomingMess
           if (err instanceof InvalidBrowserConfig) sendJson(res, 400, { ok: false, code: 'invalid', error: err.message });
           else fail(res, err);
         });
+      return;
+    }
+    if (action === 'tela') {
+      if (method === 'GET' || method === 'HEAD') {
+        browser.tela().then(
+          (shot) => {
+            if (res.destroyed) return;
+            if (!shot) {
+              res.writeHead(method === 'HEAD' ? 204 : 204, { 'Cache-Control': 'no-store' });
+              res.end();
+              return;
+            }
+            const headers: Record<string, string | number> = {
+              'Content-Type': 'image/jpeg',
+              'Cache-Control': 'no-store',
+              'X-Content-Type-Options': 'nosniff',
+              'Cross-Origin-Resource-Policy': 'same-origin',
+              'X-Page-Url': encodeURIComponent(shot.url),
+              'X-Page-Title': encodeURIComponent(shot.title),
+            };
+            if (method === 'HEAD') {
+              res.writeHead(200, headers);
+              res.end();
+              return;
+            }
+            res.writeHead(200, { ...headers, 'Content-Length': shot.jpeg.length });
+            res.end(shot.jpeg);
+          },
+          (err) => fail(res, err),
+        );
+        return;
+      }
+      if (method !== 'POST') {
+        res.setHeader('Allow', 'GET, POST');
+        return sendJson(res, 405, { ok: false, error: tr('método não permitido') });
+      }
+      readJson(req)
+        .then((raw) => {
+          const body = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Rec) : {};
+          return browser.telaAgir(body);
+        })
+        .then(
+          () => {
+            if (!res.destroyed && !res.writableEnded) sendJson(res, 200, { ok: true });
+          },
+          (err) => fail(res, err),
+        );
       return;
     }
     if (action === 'screenshot') {

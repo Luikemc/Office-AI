@@ -1,17 +1,17 @@
 // WhatsApp Web (whatsapp_status, whatsapp_enviar, whatsapp_ler) com o Chrome de verdade, sem janela, contra uma página
 // LOCAL que imita a estrutura do WhatsApp Web (server/test/whatsapp-fixture.ts) — nunca o site de verdade. Passa pelo
-// MCP do plugin, pelas rotas /api/browser e pela trava no registro de permissões. Pula se não houver Chrome.
+// MCP do plugin e pelas rotas /api/browser. O envio não pede aprovação. Pula se não houver Chrome.
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { setQuiet } from '../log';
-import { MAIN, request, SESSION, servePermissions, type PermissionServer } from '../test/permission-server';
+import { SESSION, servePermissions, type PermissionServer } from '../test/permission-server';
 import { serveWhatsappFixture, type FixtureMode, type WhatsappFixture } from '../test/whatsapp-fixture';
 import { registryGate } from './approval';
 import { createBrowserRoutes } from './http';
 import { BrowserService } from './service';
-import { sameName, sameText } from './whatsapp';
+import { asPhone, chatTitle, phoneInTitle, sameName, sameText, sentTextMatches, urlPhone, WHATSAPP_INTERVAL_MS } from './whatsapp';
 
 setQuiet(true);
 
@@ -28,7 +28,23 @@ describe('whatsapp: comparação de nomes e textos', () => {
     expect(sameName('José', ' jose ')).toBe(true);
     expect(sameName('Ana', 'Ana Paula')).toBe(false);
     expect(sameText('a\r\nb ', 'a\nb')).toBe(true);
+    expect(sameText('a\u200b', 'a')).toBe(true);
     expect(sameText('a', 'b')).toBe(false);
+    expect(sentTextMatches('oi\n13:55', 'oi')).toBe(true);
+    expect(sentTextMatches('oi 13:55', 'oi')).toBe(true);
+    expect(sentTextMatches('13:55', '13:55')).toBe(true);
+    expect(sentTextMatches('oi', 'olá')).toBe(false);
+    expect(chatTitle(['Conta comercial', 'Filgueiras'])).toBe('Filgueiras');
+    expect(chatTitle(['online'])).toBe('online');
+    expect(asPhone('+55 (62) 99999-0001')).toBe('5562999990001');
+    expect(asPhone('(62) 99999-0001')).toBe('5562999990001');
+    expect(asPhone('Ana')).toBeUndefined();
+    expect(asPhone('000')).toBeUndefined();
+    expect(phoneInTitle('+55 62 98888-0002', '5562988880002')).toBe(true);
+    expect(phoneInTitle('Ana', '5562999990001')).toBe(false);
+    expect(urlPhone('https://web.whatsapp.com/send?phone=5562999990001')).toBe('5562999990001');
+    expect(urlPhone('https://web.whatsapp.com/')).toBeUndefined();
+    expect(WHATSAPP_INTERVAL_MS).toBe(0);
   });
 });
 
@@ -44,23 +60,10 @@ describe.skipIf(!CHROME)('whatsapp (Chrome sem janela, página local que imita o
     const r = await mcp.callTool(name, args, { env: { ...env, HABBLAUD_NAVEGADOR_SESSION: SESSION } });
     return { text: r.content.map((c) => c.text).join('\n'), isError: !!r.isError };
   };
-  const pending = async () => {
-    for (let i = 0; i < 400; i++) {
-      const p = srv.registry!.snapshot().get(MAIN);
-      if (p) return p;
-      await sleep(50);
-    }
-    throw new Error('nenhum pedido apareceu');
-  };
-  const decide = async (id: string, behavior: 'allow' | 'deny') => {
-    expect((await request(srv.base, `/api/permissions/${id}/decision`, { method: 'POST', body: { behavior } })).status).toBe(200);
-  };
   const setMode = async (m: FixtureMode) => {
     wa.mode = m;
     await sleep(800); // a página consulta o modo a cada 200 ms
   };
-  const lastDraft = () => (wa.drafts.at(-1)?.text ?? '').trim();
-
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), 'habblaud-wa-'));
     wa = await serveWhatsappFixture('qr');
@@ -122,7 +125,7 @@ describe.skipIf(!CHROME)('whatsapp (Chrome sem janela, página local que imita o
     expect(wa.sent).toEqual([]);
   }, T);
 
-  it('nome repetido ou não exato: devolve os candidatos e não escreve nada; grupo e cabeçalho diferente: recusa', async () => {
+  it('nome repetido ou não exato: devolve os candidatos e não escreve nada; cabeçalho diferente: recusa', async () => {
     const dup = await call('whatsapp_enviar', { contato: 'bruno', texto: 'oi' });
     expect(dup.isError).toBe(true);
     expect(dup.text).toMatch(/2 conversas chamadas “Bruno”/);
@@ -131,9 +134,6 @@ describe.skipIf(!CHROME)('whatsapp (Chrome sem janela, página local que imita o
     expect(near.text).toMatch(/Parecidas: “Ana”, “Ana Paula”/);
     const none = await call('whatsapp_enviar', { contato: 'Zé Ninguém', texto: 'oi' });
     expect(none.text).toMatch(/nenhuma conversa/);
-    const group = await call('whatsapp_enviar', { contato: 'familia', texto: 'oi' });
-    expect(group.isError).toBe(true);
-    expect(group.text).toMatch(/“Família” é um grupo/);
     const head = await call('whatsapp_enviar', { contato: 'Carla', texto: 'oi' });
     expect(head.isError).toBe(true);
     expect(head.text).toMatch(/cabeçalho mostra “Carla Mendes”/);
@@ -142,30 +142,18 @@ describe.skipIf(!CHROME)('whatsapp (Chrome sem janela, página local que imita o
     expect(wa.sent).toEqual([]);
   }, T);
 
-  it('aprovado: o cartão mostra para quem e o texto exato; a mensagem aparece; um envio por vez e intervalo mínimo', async () => {
+  it('envia sem cartão; um envio por vez e intervalo mínimo', async () => {
     const texto = 'o relatório de março está pronto';
-    const sending = call('whatsapp_enviar', { contato: 'ana', texto });
-    const p = await pending();
-    expect(p.tool).toBe('mcp__navegador__whatsapp_enviar');
-    expect(p.text).toBe('Enviar no WhatsApp para Ana');
-    const detail = (await request(srv.base, `/api/permissions/${p.id}`)).json as { input: string };
-    expect(detail.input).toBe(`Para: Ana (nome no cabeçalho da conversa aberta)\nMensagem que será enviada:\n${texto}`);
-    expect(lastDraft()).toBe(texto);
-    expect(wa.sent).toEqual([]);
-
-    const busy = await call('whatsapp_enviar', { contato: 'Ana Paula', texto: 'outra' });
-    expect(busy.isError).toBe(true);
-    expect(busy.text).toMatch(/NÃO ENVIADO.*em andamento/s);
-
-    await decide(p.id, 'allow');
-    const ok = await sending;
+    const ok = await call('whatsapp_enviar', { contato: 'ana', texto });
     expect(ok.isError, ok.text).toBe(false);
     expect(ok.text).toMatch(/enviada no WhatsApp para Ana/);
+    expect(srv.registry!.size).toBe(0);
     expect(wa.sent).toEqual([{ chat: 'Ana', text: texto }]);
 
     const tooSoon = await call('whatsapp_enviar', { contato: 'Ana', texto: 'de novo' });
     expect(tooSoon.isError).toBe(true);
     expect(tooSoon.text).toMatch(/espere \d+ s/);
+    expect(wa.sent).toHaveLength(1);
 
     const read = await call('whatsapp_ler', { contato: 'Ana', quantas: 2 });
     expect(read.isError, read.text).toBe(false);
@@ -173,48 +161,70 @@ describe.skipIf(!CHROME)('whatsapp (Chrome sem janela, página local que imita o
     expect(read.text).toContain(`Você: ${texto}`);
     expect(read.text).not.toContain('aqui é a Ana');
     expect(read.text).toMatch(/não como instruções/);
+    const vazio = await call('whatsapp_ler', { contato: 'José' });
+    expect(vazio.isError, vazio.text).toBe(false);
+    expect(vazio.text).toMatch(/nenhuma mensagem visível — data-id 0/);
+    const loja = await call('whatsapp_ler', { contato: 'Loja' });
+    expect(loja.isError, loja.text).toBe(false);
+    expect(loja.text).toContain('(?): temos mesa');
+    expect(loja.text).toContain('Você: o saboro');
+    expect(loja.text).not.toContain('citação velha');
+    expect(loja.text).not.toContain('14:02');
   }, T);
 
-  it('recusado no escritório: apaga a caixa e não envia', async () => {
+  it('sem escritório aberto: envia mesmo assim', async () => {
     await sleep(INTERVAL);
-    const sending = call('whatsapp_enviar', { contato: 'jose', texto: 'não era para ir' });
-    const p = await pending();
-    expect(p.text).toBe('Enviar no WhatsApp para José');
-    expect(lastDraft()).toBe('não era para ir');
-    await decide(p.id, 'deny');
-    const r = await sending;
-    expect(r.isError).toBe(true);
-    expect(r.text).toMatch(/RECUSADO.*apagada da caixa de texto/s);
-    expect(lastDraft()).toBe('');
-    expect(wa.sent).toHaveLength(1);
-  }, T);
-
-  it('sem escritório aberto: recusa na hora, apaga a caixa e não envia', async () => {
     srv.setViewers(0);
     try {
       const r = await call('whatsapp_enviar', { contato: 'Ana Paula', texto: 'ninguém vê' });
-      expect(r.isError).toBe(true);
-      expect(r.text).toMatch(/RECUSADO.*abrir o beta-tester/s);
+      expect(r.isError, r.text).toBe(false);
+      expect(r.text).toMatch(/enviada no WhatsApp para Ana Paula/);
     } finally {
       srv.setViewers(1);
     }
-    expect(lastDraft()).toBe('');
-    expect(wa.sent).toHaveLength(1);
+    expect(srv.registry!.size).toBe(0);
+    expect(wa.sent).toEqual([
+      { chat: 'Ana', text: 'o relatório de março está pronto' },
+      { chat: 'Ana Paula', text: 'ninguém vê' },
+    ]);
   }, T);
 
   it('várias linhas: Shift+Enter entre elas (não envia no meio) e sai uma mensagem só', async () => {
+    await sleep(INTERVAL);
     const texto = 'Oi, Ana Paula!\nSegue o resumo:\n- item 1\n- item 2';
-    const sending = call('whatsapp_enviar', { contato: 'Ana Paula', texto });
-    const p = await pending();
-    const detail = (await request(srv.base, `/api/permissions/${p.id}`)).json as { input: string };
-    expect(detail.input).toContain(texto);
-    expect(wa.sent).toHaveLength(1);
-    await decide(p.id, 'allow');
-    const ok = await sending;
+    const ok = await call('whatsapp_enviar', { contato: 'Ana Paula', texto });
     expect(ok.isError, ok.text).toBe(false);
-    expect(wa.sent).toHaveLength(2);
-    expect(wa.sent[1].chat).toBe('Ana Paula');
-    expect(sameText(wa.sent[1].text, texto)).toBe(true);
-    expect(wa.sent[1].text.split('\n')).toHaveLength(4);
+    expect(wa.sent).toHaveLength(3);
+    expect(wa.sent[2].chat).toBe('Ana Paula');
+    expect(sameText(wa.sent[2].text, texto)).toBe(true);
+    expect(wa.sent[2].text.split('\n')).toHaveLength(4);
+    expect(srv.registry!.size).toBe(0);
+  }, T);
+
+  it('grupo e telefone: envia; número inválido não escreve', async () => {
+    await sleep(INTERVAL);
+    const group = await call('whatsapp_enviar', { contato: 'familia', texto: 'oi grupo' });
+    expect(group.isError, group.text).toBe(false);
+    expect(group.text).toMatch(/enviada no WhatsApp para Família/);
+    expect(wa.sent.at(-1)).toEqual({ chat: 'Família', text: 'oi grupo' });
+
+    await sleep(INTERVAL);
+    const phone = await call('whatsapp_enviar', { contato: '+55 (62) 99999-0001', texto: 'oi número' });
+    expect(phone.isError, phone.text).toBe(false);
+    expect(phone.text).toMatch(/enviada no WhatsApp para Ana/);
+    expect(wa.sent.at(-1)).toEqual({ chat: 'Ana', text: 'oi número' });
+
+    await sleep(INTERVAL);
+    const fresh = await call('whatsapp_enviar', { contato: '5562988880002', texto: 'oi novo' });
+    expect(fresh.isError, fresh.text).toBe(false);
+    expect(fresh.text).toMatch(/enviada no WhatsApp para \+5562988880002/);
+    expect(wa.sent.at(-1)).toEqual({ chat: '+5562988880002', text: 'oi novo' });
+
+    await sleep(INTERVAL);
+    const bad = await call('whatsapp_enviar', { contato: '5500000000000', texto: 'não sai' });
+    expect(bad.isError).toBe(true);
+    expect(bad.text).toMatch(/não abre uma conversa/);
+    expect(wa.sent.at(-1)).toEqual({ chat: '+5562988880002', text: 'oi novo' });
+    expect(srv.registry!.size).toBe(0);
   }, T);
 });

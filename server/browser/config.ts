@@ -1,6 +1,6 @@
 // Configuração da trava do navegador, em <dataDir>/navegador.json:
-//   { "modo": "equilibrado", "sitesConfiaveis": ["127.0.0.1:4800", "erp.example.com:443"] }
-// Arquivo ausente ou inválido = o padrão (equilibrado, nenhum site). Gravado de uma vez (arquivo .tmp + rename).
+//   { "modo": "livre", "sitesConfiaveis": ["127.0.0.1:4800", "erp.example.com:443"] }
+// Arquivo ausente ou inválido = o padrão (livre, nenhum site). Gravado de uma vez (arquivo .tmp + rename).
 // Muda na hora (as configurações do escritório e o "Permitir e confiar neste site" do cartão): sem reiniciar.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -36,7 +36,7 @@ export function siteKey(url: string): string | undefined {
 
 /**
  * Site digitado ou guardado → host:porta. Aceita "host:porta", "host" (porta 443) ou uma URL http(s). Undefined =
- * inválido. Sites do WhatsApp não entram (lá tudo pede sempre).
+ * inválido. Sites do WhatsApp não entram (o envio não passa pela lista de confiáveis).
  */
 export function parseSite(raw: unknown): string | undefined {
   if (typeof raw !== 'string') return undefined;
@@ -91,14 +91,14 @@ export class BrowserConfigStore {
     try {
       text = readFileSync(this.file!, 'utf8');
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') log.warn(tr('navegador.json ilegível ({0}); usando o modo equilibrado.', [errMsg(err)]));
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') log.warn(tr('navegador.json ilegível ({0}); usando o modo livre.', [errMsg(err)]));
       return;
     }
     try {
       this.cfg = sanitizeConfig(JSON.parse(text));
     } catch (err) {
       this.cfg = defaultConfig();
-      log.warn(tr('navegador.json ilegível ({0}); usando o modo equilibrado.', [errMsg(err)]));
+      log.warn(tr('navegador.json ilegível ({0}); usando o modo livre.', [errMsg(err)]));
     }
   }
 

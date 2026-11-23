@@ -208,6 +208,7 @@ describe('LocalAgent', () => {
     expect(p).toContain('/home/x/proj');
     expect(p).toContain('qwen3:4b');
     expect(p).toContain('pedir_ajuda');
+    expect(p).toContain('clicar_ponto');
   });
 });
 

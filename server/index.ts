@@ -34,6 +34,7 @@ import { createBrowserRoutes } from './browser/http';
 import { BrowserService } from './browser/service';
 import { codexAccountOf } from './codex/http';
 import { createCodexQueueRunner, findCodexBin } from './messages/codex';
+import { dropNotice, InboxWatch, sameProjectPath, sessionsForFolder } from './drop/inbox';
 import { createMessageRoutes } from './messages/http';
 import { MessageRegistry } from './messages/registry';
 import type { CodexLive } from './sources/codex/live';
@@ -149,6 +150,10 @@ if (codex) agents.add(codex);
 // IA local (server/local/): agentes que o próprio servidor roda com um modelo do Ollama deste computador (sem chave de
 // API). Fora do Docker; HABBLAUD_LOCAL_AI=0 desliga. Escrever arquivos pede aprovação pelo registro de permissões e o
 // navegador, quando ligado, é o mesmo do plugin (as travas são as mesmas). Configurações › IA local muda o modelo.
+const attachments =
+  (config.messages && isTruthy(process.env.HABBLAUD_PTY?.trim())) || (!config.inDocker && process.env.HABBLAUD_LOCAL_AI?.trim() !== '0')
+    ? new AttachmentStore()
+    : undefined;
 const localConfig = !config.inDocker && process.env.HABBLAUD_LOCAL_AI?.trim() !== '0' ? new LocalConfigStore(join(config.dataDir, 'ia-local.json')) : undefined;
 const local = localConfig
   ? new LocalSource({
@@ -160,6 +165,7 @@ const local = localConfig
       // As duas são criadas mais abaixo: só são lidas quando um agente local começa.
       approve: (sessionId) => (late.permissions ? registryApprove(late.permissions, config.port, sessionId) : async () => ({ ok: false, message: tr('aprovação pelo escritório desligada neste beta-tester: nada foi gravado') })),
       browser: () => late.browserOn === true,
+      attachments,
     })
   : undefined;
 if (local) agents.add(local);
@@ -302,7 +308,6 @@ const ptyOptIn = isTruthy(ptyFlag);
 // Novo agente pelo escritório (sessão do Claude Code em segundo plano, ou a tela do app do Claude preenchida): a
 // liberação acima mais a trava das mensagens. No Docker, quem roda é o auxiliar do host (npm run codex:bridge).
 const spawnOn = config.messages && ptyOptIn;
-const attachments = spawnOn ? new AttachmentStore() : undefined;
 const spawnBin = config.inDocker ? undefined : runnableClaudeBin(process.env);
 const spawn = spawnOn
   ? new SpawnService(config.inDocker ? { attachments } : { opener: createOpener(), cli: spawnBin ? createCliRunner(spawnBin) : undefined, attachments })
@@ -325,6 +330,39 @@ const messages = config.messages
     })
   : undefined;
 late.messages = messages;
+// Arquivo novo em <projeto>/entrada avisa só as sessões abertas naquela pasta (a fila das mensagens).
+const drops = messages
+  ? new InboxWatch({
+      folders: () => {
+        const dirs: string[] = [];
+        const seen = new Set<string>();
+        for (const a of office.list()) {
+          if (a.kind !== 'main' || a.status === 'offline') continue;
+          const p = office.roomPath(a.roomId);
+          if (!p || seen.has(p)) continue;
+          seen.add(p);
+          dirs.push(p);
+        }
+        return dirs;
+      },
+      notify: (folder, names) => {
+        const ids = sessionsForFolder(office.list(), (id) => office.roomPath(id), folder, sameProjectPath);
+        if (!ids.length) return true;
+        const text = dropNotice(names);
+        let accepted = false;
+        for (const id of ids) {
+          const r = messages.send({ agentId: id, text });
+          if ('message' in r) accepted = true;
+          else if (r.error === 'too-many') log.warnOnce(`drop-full:${id}`, tr('A sessão {0} está com mensagens demais na fila: o aviso do arquivo novo espera.', [id]));
+        }
+        return accepted;
+      },
+    })
+  : undefined;
+if (drops) {
+  office.onChange(() => drops.sync());
+  drops.sync();
+}
 
 // Terminal interativo (abrir/assumir sessões e encerrar agentes): opt-in com HABBLAUD_PTY=1, só com bind local, fora
 // do Docker, com node-pty e o executável do claude no PATH.
@@ -603,6 +641,7 @@ function shutdown(signal: string): void {
   timeline?.stop();
   permissions?.stop();
   void browser?.stop();
+  drops?.stop();
   messages?.stop();
   ptys?.stopAll();
   updates.stop();

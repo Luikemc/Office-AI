@@ -13,13 +13,17 @@ const PAGE = String.raw`<!doctype html>
 <style>body{font:14px sans-serif;margin:0}#app{display:flex}#side{width:320px}#main{flex:1}.sel{white-space:pre-wrap}[role=row]{padding:6px;cursor:pointer}</style>
 </head><body><div id="app"></div><script>
 const CHATS = [
-  { id: 'ana', name: 'Ana', msgs: [{ out: false, text: 'Oi, aqui é a Ana' }, { out: true, text: 'Oi Ana!' }] },
+  { id: 'ana', name: 'Ana', phone: '5562999990001', msgs: [{ out: false, text: 'Oi, aqui é a Ana' }, { out: true, text: 'Oi Ana!' }] },
   { id: 'anap', name: 'Ana Paula', msgs: [] },
   { id: 'b1', name: 'Bruno', msgs: [] },
   { id: 'b2', name: 'Bruno', msgs: [] },
   { id: 'fam', name: 'Família', group: true, msgs: [{ out: false, text: 'bom dia' }] },
   { id: 'carla', name: 'Carla', header: 'Carla Mendes', msgs: [] },
   { id: 'jose', name: 'José', msgs: [] },
+  { id: 'loja', name: 'Loja', msgs: [
+    { bare: true, id: '3EB0B7E5A1B2C3', out: false, text: 'temos mesa', quote: 'citação velha', quoteId: 'A0A0A0A0QUOTE' },
+    { bare: true, id: 'A5A561A0BB11', out: true, text: 'o saboro' },
+  ] },
 ];
 let mode = null;
 let open = null;
@@ -49,7 +53,7 @@ function renderList() {
     return;
   }
   list.append(el('div', { role: 'listitem' }, 'Conversas'));
-  for (const c of CHATS) if (norm(c.name).includes(q)) list.append(chatItem(c, 'listitem'));
+  for (const c of CHATS) if (norm(c.name).includes(q) || (c.phone && c.phone.includes(q.replace(/\D/g, '')))) list.append(chatItem(c, 'listitem'));
   list.append(el('div', { role: 'listitem' }, 'Mensagens'));
   for (const c of CHATS) for (const m of c.msgs) if (norm(m.text).includes(q)) {
     const r = el('div', { role: 'listitem' }, el('span', { dir: 'auto', title: c.name }, c.name), el('span', {}, m.text));
@@ -58,6 +62,14 @@ function renderList() {
   }
 }
 function msgEl(c, m) {
+  if (m.bare) {
+    const bubble = el('div', { 'data-id': m.id },
+      el('span', { dir: 'ltr' }, m.text),
+      el('span', {}, '14:02'));
+    if (m.quote) bubble.prepend(el('div', { 'data-id': m.quoteId }, el('span', { dir: 'ltr' }, m.quote)));
+    if (m.out) bubble.append(el('span', { 'data-icon': 'msg-dblcheck' }));
+    return bubble;
+  }
   const id = (m.out ? 'true_' : 'false_') + c.id + '_' + (m.id ??= ++seq);
   return el('div', { 'data-id': id },
     el('div', { class: m.out ? 'message-out' : 'message-in' },
@@ -83,6 +95,8 @@ function openChat(c) {
   open = c;
   const head = el('header', {},
     el('span', { 'data-icon': c.group ? 'default-group' : 'default-user' }),
+    // A legenda vem antes do nome, como na conta comercial de verdade.
+    el('span', { dir: 'auto', title: 'Conta comercial' }, 'Conta comercial'),
     el('div', {}, el('span', { dir: 'auto', title: c.header ?? c.name }, c.header ?? c.name)),
     el('div', {}, el('span', {}, c.group ? 'clique para dados do grupo' : 'online')));
   const msgs = el('div', { id: 'msgs' });
@@ -111,6 +125,17 @@ function render() {
     app.append(el('div', { id: 'side' }, el('header', {}, 'Conversas'), el('div', {}, busca),
       el('div', { id: 'pane-side' }, el('div', { role: 'grid', 'aria-label': 'Lista de conversas', id: 'lista' }))));
     renderList();
+    const phone = (new URLSearchParams(location.search).get('phone') || '').replace(/\D/g, '');
+    if (phone === '5500000000000') {
+      app.append(el('p', {}, 'O número de telefone compartilhado por url é inválido'));
+    } else if (phone) {
+      let c = CHATS.find((c) => c.phone === phone);
+      if (!c) {
+        c = { id: 'p' + phone, name: '+' + phone, msgs: [] };
+        CHATS.push(c);
+      }
+      openChat(c);
+    }
   } else if (mode === 'qr') {
     app.append(el('div', {}, el('h1', {}, 'Use o WhatsApp no seu computador'),
       el('div', { 'data-ref': '2@abc' }, el('canvas', { 'aria-label': 'Scan this QR code to link a device!', width: '64', height: '64' }))));
@@ -157,7 +182,7 @@ export function serveWhatsappFixture(mode: FixtureMode = 'logged'): Promise<What
       return;
     }
     if (u.pathname === '/state') return void res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }).end(JSON.stringify({ mode: fx.mode }));
-    if (u.pathname === '/') return void res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(PAGE);
+    if (u.pathname === '/' || u.pathname === '/send') return void res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(PAGE);
     res.writeHead(404).end();
   });
   return new Promise((ok) =>

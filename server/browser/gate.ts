@@ -3,7 +3,7 @@
 //   1) classify(ação) → a categoria do risco (dinheiro, destrutivo, mensagem, upload, envio, download, whatsapp) ou nada;
 //   2) needsApproval(categoria, modo, site confiável) → pede ou não.
 // O modo (cauteloso / equilibrado / livre) e os sites confiáveis ficam em <dataDir>/navegador.json (config.ts).
-// Dinheiro e WhatsApp pedem sempre, em qualquer modo e em qualquer site.
+// Livre (o padrão) não pede nada: pagar, apagar, publicar e o resto seguem direto. Ações no WhatsApp não pedem em modo nenhum.
 import { tr } from '../../shared/i18n';
 
 /** Categoria do risco de uma ação (undefined = só lê ou navega). */
@@ -11,18 +11,19 @@ export type GateCategory = 'dinheiro' | 'destrutivo' | 'mensagem' | 'upload' | '
 
 export const BROWSER_MODES = ['cauteloso', 'equilibrado', 'livre'] as const;
 export type BrowserMode = (typeof BROWSER_MODES)[number];
-export const DEFAULT_MODE: BrowserMode = 'equilibrado';
+export const DEFAULT_MODE: BrowserMode = 'livre';
 
 /**
- * O que pede aprovação em cada modo. Site confiável = `livre` naquele site. Dinheiro e WhatsApp estão em todos.
- *   cauteloso:   tudo que envia, salva, confirma, baixa ou sobe arquivo (o comportamento antigo);
+ * O que pede aprovação em cada modo. Site confiável = `livre` naquele site.
+ * WhatsApp (enviar mensagem, clique, tecla) segue sem cartão em qualquer modo.
+ *   cauteloso:   tudo que envia, salva, confirma, baixa ou sobe arquivo;
  *   equilibrado: dinheiro, apagar/cancelar, mandar mensagem/publicar e subir arquivo;
- *   livre:       só dinheiro e WhatsApp.
+ *   livre:       nada. Pagar, apagar, publicar, baixar e subir arquivo seguem direto.
  */
 const ASKS: Readonly<Record<BrowserMode, ReadonlySet<GateCategory>>> = {
-  cauteloso: new Set<GateCategory>(['dinheiro', 'whatsapp', 'destrutivo', 'mensagem', 'upload', 'envio', 'download']),
-  equilibrado: new Set<GateCategory>(['dinheiro', 'whatsapp', 'destrutivo', 'mensagem', 'upload']),
-  livre: new Set<GateCategory>(['dinheiro', 'whatsapp']),
+  cauteloso: new Set<GateCategory>(['dinheiro', 'destrutivo', 'mensagem', 'upload', 'envio', 'download']),
+  equilibrado: new Set<GateCategory>(['dinheiro', 'destrutivo', 'mensagem', 'upload']),
+  livre: new Set<GateCategory>(),
 };
 
 /** Categorias que pedem sempre: o cartão não oferece "confiar neste site" para elas. */
@@ -272,6 +273,8 @@ export interface ElementFacts {
 
 export type BrowserAction =
   | { kind: 'clicar'; url: string; element: ElementFacts }
+  /** Clique por pixel da última foto (tela desenhada, sem elemento na leitura). `rotulo` é o que o agente diz que está clicando. */
+  | { kind: 'ponto'; url: string; rotulo?: string }
   | { kind: 'digitar'; url: string; element: ElementFacts; enviar: boolean }
   | { kind: 'download'; url: string }
   /** Tecla na página; `element` = o elemento com o foco (undefined = não deu para saber: trava se a tecla envia). */
@@ -321,6 +324,11 @@ export function classify(a: BrowserAction): GateCategory | undefined {
   if (a.kind === 'arquivo') return 'upload';
   if (a.kind === 'selecionar') return undefined;
   if (a.kind === 'digitar') return a.enviar ? classifyFieldSubmit(a.element) : undefined;
+  if (a.kind === 'ponto') {
+    const strong = textCategory(a.rotulo);
+    if (strong) return strong;
+    return riskyText(a.rotulo) ? 'envio' : undefined;
+  }
   if (a.kind === 'tecla') {
     const k = mainKey(a.key);
     const enter = k === 'Enter' || k === 'NumpadEnter';

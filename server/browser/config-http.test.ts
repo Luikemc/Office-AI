@@ -39,10 +39,10 @@ describe('/api/browser/config', () => {
     await off?.close();
   });
 
-  it('GET devolve o padrão (equilibrado, sem sites)', async () => {
+  it('GET devolve o padrão (livre, sem sites)', async () => {
     const r = await request(srv.base, '/api/browser/config');
     expect(r.status).toBe(200);
-    expect(r.json).toEqual({ ok: true, modo: 'equilibrado', sitesConfiaveis: [] });
+    expect(r.json).toEqual({ ok: true, modo: 'livre', sitesConfiaveis: [] });
   });
 
   it('PUT da própria página (Origin igual) muda na hora; sem Origin (curl) também', async () => {

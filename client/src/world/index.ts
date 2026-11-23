@@ -282,14 +282,22 @@ export function createWorld(canvas: HTMLCanvasElement, store: OfficeStore, o: Cr
     if (playback) worldNow += dt * 1000;
     const now = playback ? worldNow : real;
     try {
-      const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
-      if (canvas.clientWidth !== camera.viewW || canvas.clientHeight !== camera.viewH || dpr !== camera.dpr) resize();
+      // Página sem o escritório: a simulação segue (o estado continua verdadeiro), o desenho não.
+      if (!canvas.hidden) {
+        const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+        if (canvas.clientWidth !== camera.viewW || canvas.clientHeight !== camera.viewH || dpr !== camera.dpr) resize();
+      }
       sim.update(dt, now);
       // partidas e apostas resolvidas: para o feed (as do timelapse são encenação do passado: ficam fora)
       const events = sim.social.events;
       if (events.length) {
         if (!playback) for (const e of events) for (const cb of socialCbs) cb(e);
         events.length = 0;
+      }
+      if (canvas.hidden) {
+        if (selection?.type === 'agent' && !sim.chars.has(selection.id)) setSelection(null);
+        if (selection?.type === 'room' && !sim.rooms.has(selection.id)) setSelection(null);
+        return;
       }
       renderer.sync(seasonalThemeFor(options.theme, new Date()));
       if (sim.building.cols !== lastCols) {

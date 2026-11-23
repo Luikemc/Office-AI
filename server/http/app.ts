@@ -119,6 +119,16 @@ function isLoopbackAddress(addr: string | undefined): boolean {
   return a === '::1' || /^127\./.test(a);
 }
 
+/**
+ * Pedido feito pela página do escritório. O GET do quadro não manda Origin (o navegador só manda em POST);
+ * `Sec-Fetch-Site: same-origin` cobre esse caso. Um site de fora manda `cross-site` e não passa.
+ */
+function officePage(req: IncomingMessage): boolean {
+  if (req.headers['sec-fetch-site'] === 'same-origin') return true;
+  const origin = req.headers.origin;
+  return typeof origin === 'string' && origin !== 'null' && sameOrigin(req);
+}
+
 /** Origin ausente (curl, scripts) ou exatamente a origem do Host desta requisição (a própria página). */
 function sameOrigin(req: IncomingMessage): boolean {
   const origin = req.headers.origin;
@@ -462,6 +472,18 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       });
       return true;
     }
+    if (path === '/api/browser/tela') {
+      // Quadro Navegador da página: foto ao vivo e clique/teclado. Mesma trava do config, e o Origin tem de ser o desta
+      // página (a foto tem os logins do perfil; um site de fora não lê nem mexe).
+      if (!deps.browser) {
+        req.resume();
+        sendJson(res, 503, { ok: false, code: 'disabled', error: tr('navegador desligado (HABBLAUD_BROWSER=0, Docker ou beta-tester acessível pela rede)') });
+      } else if (!trusted(req) || !isLoopbackAddress(req.socket.remoteAddress) || !officePage(req)) {
+        req.resume();
+        sendJson(res, 403, { ok: false, code: 'forbidden', error: denied(req, tr('o navegador do escritório só abre pelo próprio computador (http://localhost ou http://127.0.0.1)')) });
+      } else deps.browser(req, res, url);
+      return true;
+    }
     if (path === '/api/browser/config') {
       // Configurações › Navegador (a página): modo da trava e sites confiáveis. Host local e conexão pelo loopback, como
       // as outras rotas do navegador; no PUT a página manda Origin, que precisa ser exatamente a desta página (o guard
@@ -551,6 +573,24 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       } else handleCodexEvent(req, res, { live: deps.codexLive, entries: () => accounts.entriesOf('codex') }).catch((err) => fail(res, err));
       return true;
     }
+    if (path === '/api/spawn/attachments') {
+      // O agente local também anexa por aqui, mesmo com o Novo agente do Claude desligado.
+      const store = deps.attachments;
+      if (!trusted(req, 'spawn')) sendJson(res, 403, { error: denied(req, tr('agentes novos só são abertos pelo próprio computador (http://localhost)')) });
+      else if (method !== 'POST') methodNotAllowed(res, 'POST');
+      else if (!store) sendJson(res, 403, { error: tr('anexos desligados') });
+      else
+        readJson(req, ATTACHMENT_BODY_MAX)
+          .then((body) => {
+            const a = parseAttachment(body);
+            if ('error' in a) return sendJson(res, 400, { error: a.error });
+            const r = store.put(a);
+            if ('error' in r) return sendJson(res, 429, { error: r.error });
+            sendJson(res, 201, { id: r.id, name: a.name, size: a.data.length });
+          })
+          .catch((err) => fail(res, err));
+      return true;
+    }
     if (path === '/api/spawn' || path.startsWith('/api/spawn/')) {
       // Abre uma sessão nova no app do Claude: roda código no computador, então a mesma trava das mensagens.
       const spawn = deps.spawn;
@@ -560,22 +600,7 @@ export function createApiHandler(deps: ApiDeps): (req: IncomingMessage, res: Ser
       else if (path === '/api/spawn/folders') {
         if (!isRead) methodNotAllowed(res, 'GET');
         else (deps.spawnFolders ?? (async () => []))().then((folders) => sendJson(res, 200, { folders }), (err) => fail(res, err));
-      } else if (path === '/api/spawn/attachments') {
-        const store = deps.attachments;
-        if (method !== 'POST') methodNotAllowed(res, 'POST');
-        else if (!store) sendJson(res, 403, { error: tr('anexos desligados') });
-        else
-          readJson(req, ATTACHMENT_BODY_MAX)
-            .then((body) => {
-              const a = parseAttachment(body);
-              if ('error' in a) return sendJson(res, 400, { error: a.error });
-              const r = store.put(a);
-              if ('error' in r) return sendJson(res, 429, { error: r.error });
-              sendJson(res, 201, { id: r.id, name: a.name, size: a.data.length });
-            })
-            .catch((err) => fail(res, err));
-      }
-      else if (path === '/api/spawn' && method === 'POST') {
+      } else if (path === '/api/spawn' && method === 'POST') {
         readJson(req)
           .then((body) => {
             const r = spawn.submit(body);

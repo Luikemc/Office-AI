@@ -657,7 +657,7 @@ export interface PermissionRequestInfo {
   queued?: number;
   /**
    * Pedido do navegador do escritório: o site (host:porta) que dá para marcar como confiável junto com a aprovação
-   * (decisão `allow` com `trustSite: true`). Nunca em pagamentos nem no WhatsApp.
+   * (decisão `allow` com `trustSite: true`). Não vai no envio do WhatsApp nem no pedido de ajuda.
    */
   trustSite?: string;
   createdAt: number;

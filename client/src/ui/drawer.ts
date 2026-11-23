@@ -245,6 +245,9 @@ class AgentView {
   private actDetail: HTMLElement;
   /** Mandar mensagem ao agente principal pelo Habblaud (plugin habblaud-mensagens). */
   private composer: MessageComposer;
+  /** Onde o terminal encaixa quando a página está sem o escritório em pixel art. */
+  readonly termSlot: HTMLElement;
+  private termDocked = false;
   private msgSec: ReturnType<typeof section>;
   private tasksSec: ReturnType<typeof section>;
   private tasksBar: HTMLElement;
@@ -362,6 +365,9 @@ class AgentView {
     this.msgSec = section(tr('Mandar mensagem'), this.composer.el);
     // No celular a caixa fica presa no rodapé da gaveta enquanto a conversa rola (styles.css, .ui-sec--msg).
     this.msgSec.el.classList.add('ui-sec--msg');
+    // Sem o escritório em pixel art, o terminal do agente entra aqui, no lugar da caixa.
+    this.termSlot = h('div', { class: 'ui-term-dock', hidden: true });
+    this.msgSec.el.append(this.termSlot);
     this.social = new SocialSection(ctx);
     this.perm = new PermissionCard(ctx);
 
@@ -404,6 +410,8 @@ class AgentView {
       ['bg', tr('Execução')],
     ]);
     const statsSec = section(tr('Estatísticas'), this.stats.el);
+    // No modo sem escritório o meio é a mensagem: o resto (jogo, tarefas, linha do tempo) sai da frente. A atividade fica no painel de baixo.
+    for (const el of [this.character.el, this.social.el, this.tasksSec.el, this.teamSec.el, this.timelineSec.el, statsSec.el, this.shellsSec.el, nowSec.el]) el.classList.add('ui-plain-hide');
     this.codexHint = h('p', { class: 'ui-codex-hint', hidden: true }, ...richText(CODEX_LIVE_HINT));
 
     this.el = h(
@@ -434,6 +442,13 @@ class AgentView {
 
   get agentId(): string {
     return this.id;
+  }
+
+  /** O terminal passa a ocupar o lugar da caixa de mensagem. */
+  setTerminalDock(on: boolean): void {
+    this.termDocked = on;
+    this.termSlot.hidden = !on;
+    this.msgSec.el.classList.toggle('is-terminal', on);
   }
 
   open(id: string): void {
@@ -621,7 +636,8 @@ class AgentView {
     setText(this.actDetail, detail);
 
     // Mandar mensagem: só para principais presentes (com o recurso ligado e a página local; sem o plugin, a dica).
-    setHidden(this.msgSec.el, this.composer.render(live, this.id) === 'off');
+    // Com o terminal encaixado, a seção fica mesmo sem a caixa: a conversa ocupa o lugar dela.
+    setHidden(this.msgSec.el, this.composer.render(live, this.id) === 'off' && !this.termDocked);
 
     // Vida social (personalidade, carteira, rodas): só de quem está no escritório.
     if (live) this.social.render(a.id, now);
@@ -988,7 +1004,7 @@ export class Drawer implements UiComponent {
       this.body,
     );
     // Arrastar pela barra solta a gaveta: flutuante, ela não cobre mais a lateral do escritório.
-    this.movable = new Movable(this.el, bar, { key: 'habblaud.move.drawer', enabled: () => !ctx.isNarrow(), onChange: () => this.onLayoutChange?.() });
+    this.movable = new Movable(this.el, bar, { key: 'habblaud.move.drawer', enabled: () => !ctx.isNarrow() && ctx.prefs.office, onChange: () => this.onLayoutChange?.() });
     this.el.inert = true;
   }
 
@@ -999,6 +1015,15 @@ export class Drawer implements UiComponent {
   /** Solta do lugar (arrastada pela barra). */
   get floating(): boolean {
     return this.movable.floating;
+  }
+
+  /** Lugar do terminal no meio da página, quando não há o escritório em pixel art. */
+  get termSlot(): HTMLElement {
+    return this.agentView.termSlot;
+  }
+
+  setTerminalDock(on: boolean): void {
+    this.agentView.setTerminalDock(on);
   }
 
   toggleFollow(): void {

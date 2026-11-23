@@ -7,13 +7,16 @@
 // resposta, nada acontece. Senha o modelo nunca digita:
 // login, captcha, código e QR são com o usuário (`pedir_ajuda`, o mesmo cartão da trava).
 //
-// O Chrome só abre no primeiro uso. HABBLAUD_BROWSER_HEADLESS=1 abre sem janela (testes); HABBLAUD_BROWSER=0 desliga.
+// O Chrome só abre no primeiro uso, numa tela virtual (Xvfb), fora do monitor. A imagem fica no quadro Navegador do
+// escritório. Sem Xvfb, abre sem janela e a imagem continua lá. HABBLAUD_BROWSER_HEADLESS=1 força sem janela (testes);
+// HABBLAUD_BROWSER=0 desliga.
 import { mkdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { BrowserContext, Download, FileChooser, Locator, Page } from 'playwright-core';
 import { tr } from '../../shared/i18n';
 import { errMsg, log } from '../log';
 import { BrowserConfigStore, siteKey } from './config';
+import { chromeEnv, startVirtualDisplay, type VirtualDisplay } from './display';
 import { ALWAYS_ASK, hostOf, judge, lockedSite, normalize, type BrowserAction, type ElementFacts, type GateCategory, type GateVerdict } from './gate';
 import { MAX_ELEMENTS, MAX_TEXT, parseRef, renderSnapshot, TYPABLE, type ElementInfo } from './snapshot';
 import {
@@ -42,6 +45,21 @@ const SETTLE_MS = 1_500;
 const QUIET_MS = 300;
 const TEXT_MAX = 4_000;
 const VIEWPORT = { width: 1280, height: 800 };
+
+/**
+ * Ponto da foto da viewport (canto superior esquerdo = 0,0), em pixel CSS. Arredonda.
+ * Fora da foto, ou valor que não é número, devolve undefined.
+ */
+export function parsePoint(x: unknown, y: unknown, width: number, height: number): { x: number; y: number } | undefined {
+  const n = (v: unknown) => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : Number.NaN);
+  const px = n(x);
+  const py = n(y);
+  if (!Number.isFinite(px) || !Number.isFinite(py)) return undefined;
+  const x0 = Math.round(px);
+  const y0 = Math.round(py);
+  if (x0 < 0 || y0 < 0 || x0 >= width || y0 >= height) return undefined;
+  return { x: x0, y: y0 };
+}
 /** `esperar` por um texto: no máximo isto. */
 export const WAIT_TEXT_MAX_MS = 30_000;
 /** `esperar` um tempo fixo: no máximo isto. */
@@ -74,7 +92,7 @@ export class BrowserError extends Error {
 export interface GateRequest {
   sessionId: string;
   /** Ferramenta: clicar, digitar, tecla, selecionar, enviar_arquivo, baixar, whatsapp_enviar; `ajuda` = pedir_ajuda. */
-  tool: 'clicar' | 'digitar' | 'tecla' | 'selecionar' | 'enviar_arquivo' | 'baixar' | 'whatsapp_enviar' | 'ajuda';
+  tool: 'clicar' | 'clicar_ponto' | 'digitar' | 'tecla' | 'selecionar' | 'enviar_arquivo' | 'baixar' | 'whatsapp_enviar' | 'ajuda';
   url: string;
   /** Por que travou (gate.ts). */
   reason: string;
@@ -91,7 +109,7 @@ export interface GateRequest {
   signal?: AbortSignal;
   /**
    * Site (host:porta) que o cartão oferece para "Permitir e confiar neste site". O serviço só põe quando a categoria
-   * não pede sempre (dinheiro e WhatsApp nunca).
+   * não pede sempre (dinheiro nunca; WhatsApp não pede aprovação).
    */
   trustSite?: string;
 }
@@ -133,14 +151,14 @@ export interface BrowserOptions {
   /** Executável do Chrome (HABBLAUD_BROWSER_PATH); sem ele, o canal `chrome` (o Chrome instalado). */
   executablePath?: string;
   gate: Gate;
-  /** Modo da trava e sites confiáveis (<dataDir>/navegador.json). Sem ele: equilibrado, só em memória. */
+  /** Modo da trava e sites confiáveis (<dataDir>/navegador.json). Sem ele: livre, só em memória. */
   config?: BrowserConfigStore;
   /**
    * Origens que contam como WhatsApp Web para as ferramentas whatsapp_* (a primeira é a que se abre). Produção: só
    * https://web.whatsapp.com; os testes apontam para uma página local que imita a estrutura dele.
    */
   whatsappOrigins?: string[];
-  /** Intervalo mínimo entre dois envios no WhatsApp (padrão 20 s). */
+  /** Intervalo mínimo entre dois envios no WhatsApp (padrão 0: sem espera). */
   whatsappIntervalMs?: number;
   /**
    * Pasta do projeto da sessão (o cwd da sala no escritório): `enviar_arquivo` só envia arquivos dela. Sem ela (ou
@@ -207,12 +225,34 @@ async function defaultLaunch(profileDir: string, opts: { headless: boolean; exec
   } catch {
     throw new BrowserError('disabled', tr('navegador indisponível: falta o pacote playwright-core (rode npm install)'));
   }
-  return pw.chromium.launchPersistentContext(profileDir, {
-    ...(opts.executablePath ? { executablePath: opts.executablePath } : { channel: 'chrome' }),
-    headless: opts.headless,
-    viewport: VIEWPORT,
-    acceptDownloads: true,
-  });
+  let display: VirtualDisplay | undefined;
+  if (!opts.headless) display = await startVirtualDisplay();
+  if (!opts.headless && !display) log.warn(tr('Navegador: sem Xvfb; o Chrome abre sem janela e a imagem aparece no escritório.'));
+  try {
+    const ctx = await pw.chromium.launchPersistentContext(profileDir, {
+      ...(opts.executablePath ? { executablePath: opts.executablePath } : { channel: 'chrome' }),
+      headless: opts.headless || !display,
+      viewport: VIEWPORT,
+      acceptDownloads: true,
+      ...(display
+        ? {
+            env: chromeEnv(display.display),
+            args: ['--ozone-platform=x11', `--window-size=${VIEWPORT.width},${VIEWPORT.height}`, '--window-position=0,0', '--disable-gpu'],
+          }
+        : {}),
+    });
+    if (display) {
+      const d = display;
+      ctx.on('close', () => {
+        void d.stop();
+      });
+      log.info(tr('Navegador: a janela do Chrome ficou numa tela virtual, fora da sua tela.'));
+    }
+    return ctx;
+  } catch (err) {
+    await display?.stop();
+    throw err;
+  }
 }
 
 /** Espera a página assentar depois de uma ação: load + DOM quieto, no máximo `cap`. Navegar no meio é sucesso. */
@@ -359,6 +399,10 @@ export class BrowserService {
   private waOpening: Promise<Tab> | undefined;
   private waBusy = false;
   private waLastSend = 0;
+  /** Página que o quadro do escritório mostra (a última em que um agente mexeu). */
+  private shown: Page | undefined;
+  /** Foto em curso: vários quadros abertos compartilham uma só. */
+  private shot: Promise<{ jpeg: Buffer; url: string; title: string } | undefined> | undefined;
 
   /** Modo da trava e sites confiáveis (GET/PUT /api/browser/config e o cartão "confiar neste site"). */
   readonly config: BrowserConfigStore;
@@ -372,6 +416,16 @@ export class BrowserService {
   async abrir(sessionId: string, rawUrl: unknown): Promise<ActionResult> {
     const owner = checkSession(sessionId);
     const url = normalizeUrl(rawUrl);
+    if (this.isWhatsapp(url)) {
+      const any = [...this.tabs.values()].find((t) => !t.page.isClosed() && this.isWhatsapp(t.page.url()));
+      if (any) {
+        if (any.owner !== owner) throw new BrowserError('invalid', tr('o WhatsApp já está aberto: use whatsapp_ler e whatsapp_enviar, sem abrir outra aba'));
+        return this.run(any, async () => {
+          any.notices.push(tr('o WhatsApp continua na aba aberta, sem recarregar'));
+          return this.view(any);
+        });
+      }
+    }
     if ([...this.tabs.values()].filter((t) => t.owner === owner).length >= MAX_TABS_PER_SESSION) {
       throw new BrowserError('too-many', tr('abas demais abertas nesta sessão ({0}): feche uma com `fechar`', [MAX_TABS_PER_SESSION]));
     }
@@ -399,6 +453,10 @@ export class BrowserService {
     if (hasAcao && acao !== 'voltar' && acao !== 'avancar' && acao !== 'recarregar') throw new BrowserError('invalid', tr('acao inválida: voltar, avancar ou recarregar'));
     return this.run(tab, async () => {
       const page = tab.page;
+      if ((acao === 'recarregar' || (url && this.isWhatsapp(url))) && this.isWhatsapp(page.url())) {
+        tab.notices.push(tr('o WhatsApp continua na aba aberta, sem recarregar'));
+        return this.view(tab);
+      }
       const opts = { waitUntil: 'domcontentloaded' as const, timeout: GOTO_TIMEOUT_MS };
       try {
         if (url) await page.goto(url, opts);
@@ -496,6 +554,31 @@ export class BrowserService {
     });
   }
 
+  /**
+   * Clique por pixel da parte visível (a mesma foto do `ver_tela`: 0,0 é o canto superior esquerdo).
+   * Serve quando a leitura não tem ref (canvas). A trava olha o rótulo que o agente manda, porque o HTML não tem nome.
+   */
+  async clicarPonto(sessionId: string, tabId: unknown, x: unknown, y: unknown, description: unknown, signal?: AbortSignal): Promise<ActionResult> {
+    const tab = this.tab(sessionId, tabId);
+    return this.run(tab, async () => {
+      const vp = tab.page.viewportSize() ?? VIEWPORT;
+      const point = parsePoint(x, y, vp.width, vp.height);
+      if (!point) throw new BrowserError('invalid', tr('ponto fora da tela: use x e y da última foto ({0}×{1}, canto superior esquerdo)', [vp.width, vp.height]));
+      const url = tab.page.url();
+      const rotulo = str(description);
+      const v = this.verdict({ kind: 'ponto', url, rotulo });
+      const where = rotulo ? tr('ponto ({0}, {1}) · {2}', [point.x, point.y, rotulo]) : tr('ponto ({0}, {1})', [point.x, point.y]);
+      if (v.reason) await this.ask(tab, v, { sessionId: tab.owner, tool: 'clicar_ponto', url, reason: v.reason, description: rotulo, element: where, signal });
+      try {
+        await tab.page.mouse.click(point.x, point.y);
+      } catch (err) {
+        throw this.actionError(err, tr('não deu para clicar em {0}', [where]));
+      }
+      await settle(tab.page);
+      return this.view(tab);
+    });
+  }
+
   async digitar(sessionId: string, tabId: unknown, ref: unknown, text: unknown, enviar: unknown, description: unknown, signal?: AbortSignal): Promise<ActionResult> {
     const tab = this.tab(sessionId, tabId);
     if (typeof text !== 'string' || text.length > TEXT_MAX) throw new BrowserError('invalid', tr('texto inválido (até {0} caracteres)', [TEXT_MAX]));
@@ -505,7 +588,6 @@ export class BrowserService {
       if (!TYPABLE.has(el.role)) throw new BrowserError('invalid', tr('{0} não é um campo de texto: escolha um textbox, searchbox ou combobox da última leitura', [describeEl(el)]));
       const loc = tab.page.getByRef(el.raw);
       const facts = await this.facts(loc, el);
-      if (facts.password) throw new BrowserError('invalid', passwordRefusal());
       const url = tab.page.url();
       const v = this.verdict({ kind: 'digitar', url, element: facts, enviar: submit });
       if (v.reason) await this.ask(tab, v, { sessionId: tab.owner, tool: 'digitar', url, reason: v.reason, description: str(description), element: describeEl(el), text, signal });
@@ -523,7 +605,7 @@ export class BrowserService {
   /**
    * Aperta uma tecla (nome do Playwright: Enter, Tab, Escape, ArrowDown, PageDown, Control+a...), no elemento `ref`
    * ou onde estiver o foco. Enter num campo ou Enter/Espaço num botão passam pela trava como `digitar` com `enviar` e
-   * `clicar` (gate.ts, conforme o modo); no WhatsApp toda tecla espera.
+   * `clicar` (gate.ts, conforme o modo). No WhatsApp a tecla segue sem pedir.
    */
   async tecla(sessionId: string, tabId: unknown, key: unknown, ref: unknown, description: unknown, signal?: AbortSignal): Promise<ActionResult> {
     const tab = this.tab(sessionId, tabId);
@@ -532,8 +614,6 @@ export class BrowserService {
       const el = present(ref) ? this.element(tab, ref) : undefined;
       const loc = el ? tab.page.getByRef(el.raw) : undefined;
       const facts = loc && el ? await this.facts(loc, el) : await focusedFacts(tab.page);
-      const last = key.split('+').at(-1) ?? key;
-      if (facts?.password && last.length === 1) throw new BrowserError('invalid', passwordRefusal());
       const url = tab.page.url();
       const v = this.verdict({ kind: 'tecla', url, key, element: facts });
       if (v.reason) {
@@ -714,15 +794,15 @@ export class BrowserService {
   }
 
   /**
-   * Passa a vez ao usuário (login com senha, captcha, código de verificação, QR): traz a aba para a frente, põe um
-   * cartão no escritório ("faça na janela do Chrome e clique Permitir quando terminar") e espera até 15 min. Permitir
-   * → leitura nova; recusar → "não vou fazer"; sem escritório aberto → instrução para pedir no chat.
+   * Passa a vez ao usuário (login com senha, captcha, código de verificação, QR): o quadro Navegador do escritório abre
+   * nessa aba. O cartão pede para fazer ali e clicar Permitir. Espera até 15 min. Permitir → leitura nova; recusar →
+   * "não vou fazer"; sem escritório aberto → instrução para pedir no chat.
    */
   async pedirAjuda(sessionId: string, tabId: unknown, motivo: unknown, signal?: AbortSignal): Promise<ActionResult> {
     const tab = this.tab(sessionId, tabId);
     if (typeof motivo !== 'string' || !motivo.trim() || motivo.length > 300) throw new BrowserError('invalid', tr('motivo inválido (1 a {0} caracteres): ex. "login no sistema"', [300]));
     const why = motivo.trim();
-    await tab.page.bringToFront().catch(() => {});
+    this.mark(tab.page);
     const url = tab.page.url();
     let d: GateDecision;
     try {
@@ -736,7 +816,7 @@ export class BrowserService {
       return {
         aba: { id: tab.id, title, url: tab.page.url(), revision: tab.revision },
         texto: tr(
-          'Ninguém está com o escritório aberto para receber o pedido. Peça ao usuário, aqui no chat, para fazer isto na janela do Chrome do escritório (aba {0}, {1}): {2}. Ele NÃO deve mandar senha nem código no chat. Quando ele disser que terminou, chame `ler` com tabId "{0}".',
+          'Ninguém está com o escritório aberto para receber o pedido. Peça ao usuário, aqui no chat, para abrir o quadro Navegador do escritório e fazer isto (aba {0}, {1}): {2}. Ele NÃO deve mandar senha nem código no chat. Quando ele disser que terminou, chame `ler` com tabId "{0}".',
           [tab.id, hostOf(url) || url.slice(0, 80), why],
         ),
       };
@@ -845,12 +925,11 @@ export class BrowserService {
   }
 
   /**
-   * Manda `texto` para a conversa individual `contato`: acha a conversa, confere o cabeçalho, escreve, pede o ok no
-   * escritório (cartão com o nome do cabeçalho e o texto exato) e só então aperta Enter. Um envio por vez e um
-   * intervalo mínimo entre envios.
+   * Manda `texto` para a conversa individual `contato`: acha a conversa, confere o cabeçalho, escreve e aperta Enter,
+   * sem cartão de aprovação. Um envio por vez. Sem intervalo, a menos que `whatsappIntervalMs` diga o contrário.
    */
-  async whatsappEnviar(sessionId: string, contato: unknown, texto: unknown, signal?: AbortSignal): Promise<WhatsappSent> {
-    const owner = checkSession(sessionId);
+  async whatsappEnviar(sessionId: string, contato: unknown, texto: unknown, _signal?: AbortSignal): Promise<WhatsappSent> {
+    checkSession(sessionId);
     const name = waName(contato);
     if (typeof texto !== 'string' || !texto.trim() || texto.length > WA_TEXT_MAX) throw new BrowserError('invalid', tr('texto inválido (1 a {0} caracteres)', [WA_TEXT_MAX]));
     if (this.waBusy) throw new BrowserError('too-many', tr('já há um envio no WhatsApp em andamento: espere ele terminar (um por vez).'));
@@ -865,13 +944,7 @@ export class BrowserService {
           onSend: () => {
             this.waLastSend = Date.now();
           },
-          ask: async (shown, text) => {
-            try {
-              return await this.opts.gate({ sessionId: owner, tool: 'whatsapp_enviar', url: page.url(), reason: tr('enviar uma mensagem no WhatsApp'), element: shown, text, signal });
-            } catch (err) {
-              return { ok: false, message: tr('a trava falhou ({0}); nada foi feito', [errMsg(err)]) };
-            }
-          },
+          ask: async () => ({ ok: true }),
         }),
       );
     } finally {
@@ -895,12 +968,11 @@ export class BrowserService {
     return list.length ? list : [WHATSAPP_ORIGIN];
   }
 
-  /** Roda `fn` na fila da aba do WhatsApp (a que já está aberta no perfil, ou uma nova). */
+  /** Roda `fn` na fila da aba do WhatsApp (a que já está aberta no perfil, ou uma nova). Não traz a janela para a frente. */
   private async withWhatsapp<T>(fn: (page: Page) => Promise<T>): Promise<T> {
     const tab = await this.whatsappTab();
     return this.run(tab, async () => {
       if (tab.page.isClosed()) throw new BrowserError('not-found', tr('a aba do WhatsApp fechou: chame de novo'));
-      await tab.page.bringToFront().catch(() => {});
       try {
         return await fn(tab.page);
       } catch (err) {
@@ -1019,7 +1091,71 @@ export class BrowserService {
     return t;
   }
 
+  /** Foto da página que o quadro mostra. Sem Chrome aberto, undefined (não liga o Chrome só para olhar). */
+  async tela(): Promise<{ jpeg: Buffer; url: string; title: string } | undefined> {
+    if (!this.ctx) return undefined;
+    const page = this.front();
+    if (!page) return undefined;
+    if (this.shot) return this.shot;
+    const job = (async () => {
+      const jpeg = await page.screenshot({ type: 'jpeg', quality: 50, timeout: 4_000, scale: 'css' });
+      const title = await page.title().catch(() => '');
+      return { jpeg, url: page.url(), title };
+    })().catch(() => undefined);
+    const wrapped = job.finally(() => {
+      if (this.shot === wrapped) this.shot = undefined;
+    });
+    this.shot = wrapped;
+    return wrapped;
+  }
+
+  /** Clique, tecla, texto ou rolagem do quadro do escritório, na página que ele está mostrando. */
+  async telaAgir(body: { tipo?: unknown; x?: unknown; y?: unknown; tecla?: unknown; texto?: unknown; dy?: unknown }): Promise<void> {
+    const page = this.front();
+    if (!page) throw new BrowserError('not-ready', tr('o navegador ainda não abriu'));
+    const tipo = body.tipo;
+    if (tipo === 'click') {
+      const point = parsePoint(body.x, body.y, VIEWPORT.width, VIEWPORT.height);
+      if (!point) throw new BrowserError('invalid', tr('ponto fora da tela: use x e y da última foto ({0}×{1}, canto superior esquerdo)', [VIEWPORT.width, VIEWPORT.height]));
+      await page.mouse.click(point.x, point.y);
+      return;
+    }
+    if (tipo === 'tecla') {
+      const key = typeof body.tecla === 'string' ? body.tecla : '';
+      if (!KEY_RE.test(key)) throw new BrowserError('invalid', tr('tecla inválida'));
+      await page.keyboard.press(key);
+      return;
+    }
+    if (tipo === 'texto') {
+      const text = typeof body.texto === 'string' ? body.texto : '';
+      if (!text || text.length > 200) throw new BrowserError('invalid', tr('texto inválido'));
+      await page.keyboard.insertText(text);
+      return;
+    }
+    if (tipo === 'rolar') {
+      const raw = typeof body.dy === 'number' ? body.dy : typeof body.dy === 'string' ? Number(body.dy) : Number.NaN;
+      if (!Number.isFinite(raw)) throw new BrowserError('invalid', tr('rolagem inválida'));
+      await page.mouse.move(VIEWPORT.width / 2, VIEWPORT.height / 2);
+      await page.mouse.wheel(0, Math.max(-800, Math.min(800, raw)));
+      return;
+    }
+    throw new BrowserError('invalid', tr('ação inválida'));
+  }
+
+  private front(): Page | undefined {
+    if (this.shown && !this.shown.isClosed()) return this.shown;
+    for (const t of this.tabs.values()) {
+      if (!t.page.isClosed()) return (this.shown = t.page);
+    }
+    return undefined;
+  }
+
+  private mark(page: Page): void {
+    if (!page.isClosed()) this.shown = page;
+  }
+
   private run<T>(tab: Tab, fn: () => Promise<T>): Promise<T> {
+    this.mark(tab.page);
     const next = tab.queue.then(fn, fn);
     tab.queue = next.catch(() => {});
     return next;
@@ -1069,7 +1205,7 @@ export class BrowserService {
       d = { ok: false, message: tr('a trava falhou ({0}); nada foi feito', [errMsg(err)]) };
     }
     if (!d.ok) throw new BrowserError('denied', d.message);
-    if (d.trustSite && site && this.config.trust(site)) tab.notices.push(tr('o usuário marcou {0} como site confiável: ali só pagamentos pedem aprovação', [site]));
+    if (d.trustSite && site && this.config.trust(site)) tab.notices.push(tr('o usuário marcou {0} como site confiável: ali nada pede aprovação', [site]));
   }
 
   /** Nova leitura da aba: revisão nova, refs novas, texto pronto. `part`: só aquele pedaço da página inteira. */
@@ -1097,7 +1233,6 @@ export class BrowserService {
       tr('Aba {0} · revisão {1}', [aba.id, aba.revision]),
       tr('Título: {0}', [title || '—']),
       `URL: ${aba.url}`,
-      ...(lockedSite(aba.url) ? [tr('Atenção: neste site toda ação que altera a página espera a aprovação do usuário no escritório.')] : []),
       ...notices.map((n) => tr('Aviso: {0}', [n])),
       ...partLines(snap, opts.part),
       '',
@@ -1135,7 +1270,7 @@ export class BrowserService {
         tab.notices.push(tr('download de {0} cancelado: {1}', [name, decision.message]));
         return;
       }
-      if (decision.trustSite && site && this.config.trust(site)) tab.notices.push(tr('o usuário marcou {0} como site confiável: ali só pagamentos pedem aprovação', [site]));
+      if (decision.trustSite && site && this.config.trust(site)) tab.notices.push(tr('o usuário marcou {0} como site confiável: ali nada pede aprovação', [site]));
     }
     try {
       mkdirSync(this.opts.downloadsDir, { recursive: true });
@@ -1165,11 +1300,6 @@ function str(v: unknown): string | undefined {
 
 function present(v: unknown): boolean {
   return v !== undefined && v !== null && v !== '';
-}
-
-/** O modelo nunca digita senha: login é com o usuário. */
-function passwordRefusal(): string {
-  return tr('campo de senha: não digite senhas. Use `pedir_ajuda` (motivo: "login") para o usuário entrar na janela do Chrome; a sessão fica salva no perfil. Nunca peça a senha no chat.');
 }
 
 function describeFacts(f: PageFacts): string {

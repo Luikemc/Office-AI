@@ -19,7 +19,7 @@ const MODES: readonly BrowserMode[] = ['cauteloso', 'equilibrado', 'livre'];
 export const MODE_HINTS: Readonly<Record<BrowserMode, string>> = {
   cauteloso: tr('Cauteloso: pede antes de enviar, salvar ou confirmar qualquer formulário, baixar e subir arquivos.'),
   equilibrado: tr('Equilibrado: pede só para pagar, excluir, mandar mensagem ou publicar e subir arquivos; o resto ele faz sozinho.'),
-  livre: tr('Livre: pede só para pagamentos e no WhatsApp.'),
+  livre: tr('Livre: não pede aprovação. O agente age sozinho, inclusive em pagamentos.'),
 };
 
 export function parseBrowserConfig(v: unknown): BrowserConfigView | undefined {
@@ -49,7 +49,7 @@ export class BrowserSettingsGroup {
       (v) => void this.save({ modo: v }),
     );
     this.hint = h('span', { class: 'ui-set__hint' });
-    this.mode.row.append(this.hint, h('span', { class: 'ui-set__hint', text: tr('Pagamentos e o WhatsApp pedem sempre, em qualquer modo e em qualquer site.') }));
+    this.mode.row.append(this.hint);
     this.list = h('ul', { class: 'ui-navsites', attrs: { 'aria-label': tr('Sites confiáveis') } });
     this.status = h('p', { class: 'ui-set__hint', role: 'status', attrs: { 'aria-live': 'polite' } });
     this.el = h(
@@ -61,7 +61,7 @@ export class BrowserSettingsGroup {
         'div',
         { class: 'ui-set ui-set--stack' },
         h('span', { class: 'ui-set__label', text: tr('Sites confiáveis') }),
-        h('span', { class: 'ui-set__hint', text: tr('Nestes sites o navegador age como no modo Livre (pagamentos continuam pedindo). Para incluir um, use “Permitir e confiar neste site” no cartão de aprovação.') }),
+        h('span', { class: 'ui-set__hint', text: tr('Nestes sites o navegador age como no modo Livre, sem pedir aprovação. Para incluir um, use “Permitir e confiar neste site” no cartão de aprovação.') }),
         this.list,
       ),
       this.status,

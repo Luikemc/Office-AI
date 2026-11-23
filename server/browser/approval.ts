@@ -11,7 +11,7 @@ export const APPROVAL_TIMEOUT_MS = 5 * 60_000;
 /** Nome da ferramenta no cartão (o servidor MCP do plugin se chama "navegador"). */
 export const TOOL_PREFIX = 'mcp__navegador__';
 const TYPED_MAX = 4_000;
-const ICONS: Record<GateRequest['tool'], string> = { whatsapp_enviar: '💬', baixar: '⬇️', digitar: '⌨️', tecla: '⌨️', clicar: '🖱️', selecionar: '🖱️', enviar_arquivo: '📎', ajuda: '🙋' };
+const ICONS: Record<GateRequest['tool'], string> = { whatsapp_enviar: '💬', baixar: '⬇️', digitar: '⌨️', tecla: '⌨️', clicar: '🖱️', clicar_ponto: '🖱️', selecionar: '🖱️', enviar_arquivo: '📎', ajuda: '🙋' };
 
 export function skipMessage(skip: SkipReason, port: number): string {
   switch (skip) {
@@ -33,7 +33,7 @@ export function cardText(r: GateRequest): string {
   if (r.tool === 'tecla') return tr('Apertar {0} em {1}', [r.text ?? '?', site]);
   if (r.tool === 'selecionar') return tr('Escolher {0} em {1}', [r.text ?? '?', site]);
   if (r.tool === 'enviar_arquivo') return tr('Enviar {0} arquivo(s) para {1}', [r.files?.length ?? 0, site]);
-  if (r.tool === 'ajuda') return tr('Ajuda no navegador: {0} — faça na janela do Chrome e clique Permitir quando terminar', [(r.text ?? r.reason).slice(0, 120)]);
+  if (r.tool === 'ajuda') return tr('Ajuda no navegador: {0} — abra Navegador na barra, faça nessa tela e clique Permitir quando terminar', [(r.text ?? r.reason).slice(0, 120)]);
   return tr('Clicar em {0} em {1}', [r.element ?? tr('um elemento'), site]);
 }
 
@@ -45,9 +45,9 @@ export function cardInput(r: GateRequest): string {
   }
   if (r.tool === 'ajuda') {
     return [
-      tr('O agente pede que você faça isto na janela do Chrome do escritório: {0}', [r.text ?? r.reason]),
+      tr('O agente pede que você faça isto no quadro Navegador do escritório: {0}', [r.text ?? r.reason]),
       tr('Site: {0}', [r.url.slice(0, 500)]),
-      tr('Faça na janela do Chrome (a aba foi trazida para a frente) e clique Permitir quando terminar. Recusar = “não vou fazer”.'),
+      tr('Abra Navegador na barra do escritório, faça nessa tela e clique Permitir quando terminar. Recusar = “não vou fazer”.'),
       tr('Nunca mande senhas ou códigos no chat: digite só na página.'),
     ].join('\n');
   }

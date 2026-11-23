@@ -24,7 +24,7 @@
 import type { EngineInterface, Register, SessionRateLimit } from 'claude-code'
 
 /** Porta padrão do Habblaud (a mesma do servidor, do hook de permissão e do docker-compose). */
-export const DEFAULT_PORT = 4747
+export const DEFAULT_PORT = 4748
 /** Intervalo das perguntas ao Habblaud; fora do ar, recua para o segundo até ele voltar. */
 export const POLL_MS = 5_000
 export const OFFLINE_POLL_MS = 30_000

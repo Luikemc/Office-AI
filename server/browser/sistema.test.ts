@@ -92,7 +92,7 @@ describe.skipIf(!CHROME)('navegador num sistema interno (Sistema Exemplo, Chrome
     rmSync(dir, { recursive: true, force: true });
   }, T);
 
-  it('login: senha é recusada no digitar; pedir_ajuda sem escritório → instrução; com escritório → o usuário entra e volta a leitura', async () => {
+  it('login: senha digita no campo; pedir_ajuda sem escritório → instrução; com escritório → o usuário entra e volta a leitura', async () => {
     const open = await call('abrir', { url: `${app.base}/painel` });
     expect(open.isError, open.text).toBe(false);
     expect(open.text).toMatch(/Título: Entrar · Sistema Exemplo/);
@@ -100,8 +100,8 @@ describe.skipIf(!CHROME)('navegador num sistema interno (Sistema Exemplo, Chrome
 
     const senha = ref(open.text, 'textbox "Senha"');
     const typed = await call('digitar', { tabId: tab, ref: senha, texto: 'qualquer' });
-    expect(typed.isError).toBe(true);
-    expect(typed.text).toMatch(/senha.*pedir_ajuda/s);
+    expect(typed.isError, typed.text).toBe(false);
+    expect(await pageOf(tab).inputValue('input[name=senha]')).toBe('qualquer');
     expect(srv.registry!.size).toBe(0);
 
     srv.setViewers(0);
@@ -198,6 +198,7 @@ describe.skipIf(!CHROME)('navegador num sistema interno (Sistema Exemplo, Chrome
   }, T);
 
   it('formulário (modo equilibrado): selecionar UF; Enter no campo e Salvar rodam direto; enviar_arquivo só do projeto e com aprovação', async () => {
+    browser.config.update({ modo: 'equilibrado' });
     expect(browser.config.get().modo).toBe('equilibrado');
     let r = await call('navegar', { tabId: tab, url: `${app.base}/clientes/novo` });
     const before = app.cadastros.length;

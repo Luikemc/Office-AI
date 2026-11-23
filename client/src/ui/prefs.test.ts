@@ -53,6 +53,12 @@ describe('preferências', () => {
     expect(loadPrefs(broken)).toEqual(DEFAULT_PREFS);
     expect(() => savePrefs(broken, DEFAULT_PREFS)).not.toThrow();
   });
+  it('escritório em pixel art: ligado por padrão e desligável', () => {
+    expect(DEFAULT_PREFS.office).toBe(true);
+    expect(sanitizePrefs({}).office).toBe(true);
+    expect(sanitizePrefs({ office: false }).office).toBe(false);
+    expect(sanitizePrefs({ office: 'não' }).office).toBe(true);
+  });
   it('extrai só as opções do mundo', () => {
     expect(worldOptionsFrom({ ...DEFAULT_PREFS, daylight: 'day' })).toEqual({ showNames: true, bubbles: 'important', liveliness: 'normal', dayNight: false, daylight: 'day', theme: 'auto' });
     expect(worldOptionsFrom({ ...DEFAULT_PREFS, daylight: 'night' })).toMatchObject({ dayNight: true, daylight: 'night' });

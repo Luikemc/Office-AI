@@ -446,8 +446,6 @@ export class SpawnPanel {
     setHidden(this.localBox, !local);
     setHidden(this.localHint, !local);
     setHidden(this.claudeHint, local);
-    setHidden(this.attachRow.querySelector('.ui-spawn__attach') as HTMLElement, local);
-    if (local) this.clearFiles();
     this.renderLocal();
   }
 
@@ -479,7 +477,7 @@ export class SpawnPanel {
         ),
       );
       if (st.models.some((m) => m.name === keep)) this.modelSelect.value = keep;
-      setText(this.localHint, tr('Roda no computador com o Ollama {0}, sem nuvem e sem chave de API. Na CPU cada resposta pode levar minutos. Escrever arquivos e as ações arriscadas do navegador pedem aprovação aqui.', [st.version ?? '']));
+      setText(this.localHint, tr('Roda no computador com o Ollama {0}, sem nuvem e sem chave de API. Na CPU cada resposta pode levar minutos. Escrever arquivos e as ações arriscadas do navegador pedem aprovação aqui. PDF, planilha e Word anexados entram no pedido como texto.', [st.version ?? '']));
     }
     for (const g of [...this.tools]) if (!st.ferramentas.includes(g)) this.tools.delete(g);
     this.toolsBox.replaceChildren(
@@ -495,20 +493,36 @@ export class SpawnPanel {
     );
   }
 
+  private async uploadFiles(): Promise<string[]> {
+    const ids: string[] = [];
+    for (const [i, f] of this.files.entries()) {
+      this.say(this.files.length > 1 ? tr('Enviando anexos ({0} de {1})…', [i + 1, this.files.length]) : tr('Enviando o anexo…'));
+      const r = await api<{ id: string }>('/api/spawn/attachments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: f.file.name, type: f.file.type, data: await fileToBase64(f.file) }),
+      });
+      ids.push(r.id);
+    }
+    return ids;
+  }
+
   private async submitLocal(folder: string): Promise<void> {
     const model = this.modelSelect.value;
     if (!model) return this.say(tr('Escolha um modelo instalado no Ollama.'), true);
     this.busy = true;
     this.submitBtn.disabled = true;
     try {
+      const ids = await this.uploadFiles();
       this.say(tr('Começando o agente local…'));
       await api<{ agent: { id: string } }>('/api/local/agents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folder, prompt: this.prompt.value, model, ferramentas: [...this.tools] }),
+        body: JSON.stringify({ folder, prompt: this.prompt.value, model, ferramentas: [...this.tools], ...(ids.length ? { attachments: ids } : {}) }),
       });
       this.say(tr('Rodando: o agente local já está no escritório. A primeira resposta pode demorar enquanto o modelo carrega.'));
       this.prompt.value = '';
+      this.clearFiles();
       writePref(folder);
       this.ctx.announce(tr('Agente local novo rodando.'));
     } catch (err) {
@@ -528,16 +542,7 @@ export class SpawnPanel {
     this.busy = true;
     this.submitBtn.disabled = true;
     try {
-      const ids: string[] = [];
-      for (const [i, f] of this.files.entries()) {
-        this.say(this.files.length > 1 ? tr('Enviando anexos ({0} de {1})…', [i + 1, this.files.length]) : tr('Enviando o anexo…'));
-        const r = await api<{ id: string }>('/api/spawn/attachments', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: f.file.name, type: f.file.type, data: await fileToBase64(f.file) }),
-        });
-        ids.push(r.id);
-      }
+      const ids = await this.uploadFiles();
       this.say(tr('Começando no computador…'));
       let info = await api<SpawnInfo>('/api/spawn', {
         method: 'POST',

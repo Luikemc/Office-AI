@@ -8,6 +8,8 @@ export const PREFS_KEY = 'habblaud:prefs';
 
 export interface UiPrefs {
   showNames: boolean;
+  /** Escritório em pixel art. Desligado: lista à esquerda, atividade embaixo e o terminal no meio. */
+  office: boolean;
   bubbles: WorldOptions['bubbles'];
   liveliness: WorldOptions['liveliness'];
   /** Ciclo dia/noite: automático (hora local), sempre dia ou sempre noite. */
@@ -29,6 +31,7 @@ export interface UiPrefs {
 
 export const DEFAULT_PREFS: UiPrefs = {
   showNames: DEFAULT_WORLD_OPTIONS.showNames,
+  office: true,
   bubbles: DEFAULT_WORLD_OPTIONS.bubbles,
   liveliness: DEFAULT_WORLD_OPTIONS.liveliness,
   daylight: 'auto',
@@ -54,6 +57,7 @@ export function sanitizePrefs(raw: unknown): UiPrefs {
   const d = DEFAULT_PREFS;
   return {
     showNames: bool(o.showNames, d.showNames),
+    office: bool(o.office, d.office),
     bubbles: oneOf(o.bubbles, ['all', 'important', 'none'] as const, d.bubbles),
     liveliness: oneOf(o.liveliness, ['calm', 'normal', 'lively'] as const, d.liveliness),
     // preferências antigas: o interruptor "dia e noite" desligado vira "sempre dia"
